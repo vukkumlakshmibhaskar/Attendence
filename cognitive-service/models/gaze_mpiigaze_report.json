@@ -1,0 +1,121 @@
+{
+  "dataset": "C:\\Users\\lakshmibhaskar.v\\Downloads\\MPIIGaze",
+  "task": "mpiigaze_screen_vs_away_proxy",
+  "labels": [
+    "screen",
+    "away"
+  ],
+  "center_threshold_radians": 0.22,
+  "note": "MPIIGaze contains on-screen gaze targets. The 'away' class here means far from camera/screen center, not true off-screen distraction.",
+  "train_people": [
+    "p00",
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05",
+    "p06",
+    "p07",
+    "p08",
+    "p09",
+    "p10"
+  ],
+  "val_people": [
+    "p11",
+    "p12"
+  ],
+  "test_people": [
+    "p13",
+    "p14"
+  ],
+  "train_samples": 412134,
+  "train_away_samples": 211181,
+  "val_samples": 9182,
+  "val_away_samples": 4339,
+  "test_samples": 5996,
+  "test_away_samples": 3085,
+  "val": {
+    "accuracy": 0.571335221084731,
+    "confusion_matrix": [
+      [
+        2148,
+        2695
+      ],
+      [
+        1241,
+        3098
+      ]
+    ],
+    "classification_report": {
+      "screen": {
+        "precision": 0.6338152847447625,
+        "recall": 0.44352673962419986,
+        "f1-score": 0.521865889212828,
+        "support": 4843.0
+      },
+      "away": {
+        "precision": 0.5347833592266529,
+        "recall": 0.7139893984789122,
+        "f1-score": 0.6115278326095539,
+        "support": 4339.0
+      },
+      "accuracy": 0.571335221084731,
+      "macro avg": {
+        "precision": 0.5842993219857077,
+        "recall": 0.578758069051556,
+        "f1-score": 0.5666968609111909,
+        "support": 9182.0
+      },
+      "weighted avg": {
+        "precision": 0.5870172532894066,
+        "recall": 0.571335221084731,
+        "f1-score": 0.564236088777018,
+        "support": 9182.0
+      }
+    }
+  },
+  "test": {
+    "accuracy": 0.6557705136757839,
+    "confusion_matrix": [
+      [
+        2221,
+        690
+      ],
+      [
+        1374,
+        1711
+      ]
+    ],
+    "classification_report": {
+      "screen": {
+        "precision": 0.6178025034770515,
+        "recall": 0.7629680522157334,
+        "f1-score": 0.68275438057178,
+        "support": 2911.0
+      },
+      "away": {
+        "precision": 0.7126197417742607,
+        "recall": 0.5546191247974068,
+        "f1-score": 0.6237695953335763,
+        "support": 3085.0
+      },
+      "accuracy": 0.6557705136757839,
+      "macro avg": {
+        "precision": 0.6652111226256561,
+        "recall": 0.6587935885065701,
+        "f1-score": 0.6532619879526782,
+        "support": 5996.0
+      },
+      "weighted avg": {
+        "precision": 0.6665868897590544,
+        "recall": 0.6557705136757839,
+        "f1-score": 0.6524061380000892,
+        "support": 5996.0
+      }
+    }
+  },
+  "onnx_validation": {
+    "onnx_checked_samples": 512,
+    "onnx_checked_accuracy": 0.59375
+  }
+}

@@ -1,0 +1,90 @@
+# Local environment
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Node / Vite frontend
+**/node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python / FastAPI service
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+ENV/
+
+# Go backend
+*.exe
+*.test
+*.out
+coverage.out
+go-backend/bin/
+go-backend/tmp/
+
+# Runtime output and logs
+**/runtime-logs/
+logs/
+*.log
+*.pid
+
+# Build / cache folders
+dist/
+build/
+tmp/
+temp/
+.cache/
+.parcel-cache/
+
+# Database and local data dumps
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+postgres-data/
+pgdata/
+
+# ML datasets and training artifacts
+datasets/
+data/
+archive*/
+**/runs/
+**/weights/
+**/wandb/
+**/mlruns/
+*.pt
+*.pth
+*.ckpt
+*.engine
+*.tflite
+*.unsupported.onnx
+*.optimized.onnx
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets and certificates
+*.pem
+*.key
+*.crt
+*.p12
