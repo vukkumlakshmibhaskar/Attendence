@@ -1,13 +1,24 @@
-# Local environment
+# Team-friendly ignore rules.
+# Commit source code, lockfiles, docs, migrations, and .env.example files.
+# Keep personal credentials, generated output, datasets, logs, and machine-specific files local.
+
+# Local environment and secrets
 .env
 .env.*
 !.env.example
 !**/.env.example
+*.local
+*.secret
+secrets/
 
 # Node / Vite frontend
 **/node_modules/
 frontend/dist/
 frontend/.vite/
+.vite/
+.turbo/
+.next/
+.nuxt/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -20,8 +31,13 @@ pnpm-debug.log*
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.hypothesis/
+.tox/
+.nox/
 .coverage
 htmlcov/
+pip-wheel-metadata/
+*.egg-info/
 .venv/
 venv/
 env/
@@ -32,6 +48,8 @@ ENV/
 *.test
 *.out
 coverage.out
+coverage.html
+*.prof
 go-backend/bin/
 go-backend/tmp/
 
@@ -48,12 +66,15 @@ tmp/
 temp/
 .cache/
 .parcel-cache/
+out/
 
-# Database and local data dumps
+# Docker, database, and local data dumps
+docker-compose.override.yml
 *.db
 *.sqlite
 *.sqlite3
 *.dump
+*.sql
 *.sql.gz
 postgres-data/
 pgdata/
@@ -61,6 +82,7 @@ pgdata/
 # ML datasets and training artifacts
 datasets/
 data/
+local-data/
 archive*/
 **/runs/
 **/weights/
@@ -74,14 +96,23 @@ archive*/
 *.unsupported.onnx
 *.optimized.onnx
 
-# OS / editor files
+# OS files
 .DS_Store
+.AppleDouble
+.LSOverride
 Thumbs.db
 desktop.ini
+
+# Editor / IDE files
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
 *.swp
 *.swo
+*.swn
 
 # Secrets and certificates
 *.pem
