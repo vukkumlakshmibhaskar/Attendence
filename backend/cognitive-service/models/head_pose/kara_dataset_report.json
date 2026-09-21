@@ -1,0 +1,47 @@
+{
+  "dataset_root": "C:\\Users\\lakshmibhaskar.v\\Downloads\\kara2018_headposeannotations\\kara2018_headposeannotations",
+  "images_dir": "",
+  "ground_truth_rows": 555,
+  "matched_images": 0,
+  "missing_images": 555,
+  "missing_examples": [
+    "person01100-90+0.jpg",
+    "person01101-60-90.jpg",
+    "person01103-60-60.jpg",
+    "person01105-60-30.jpg",
+    "person01107-60+0.jpg",
+    "person01109-60+30.jpg",
+    "person01111-60+60.jpg",
+    "person01113-60+90.jpg",
+    "person01114-30-90.jpg",
+    "person01116-30-60.jpg",
+    "person01118-30-30.jpg",
+    "person01120-30+0.jpg",
+    "person01122-30+30.jpg",
+    "person01124-30+60.jpg",
+    "person01126-30+90.jpg",
+    "person01140+0-90.jpg",
+    "person01142+0-60.jpg",
+    "person01144+0-30.jpg",
+    "person01146+0+0.jpg",
+    "person01148+0+30.jpg"
+  ],
+  "tilt_values": [
+    -90.0,
+    -60.0,
+    -30.0,
+    0.0,
+    30.0,
+    60.0,
+    90.0
+  ],
+  "pan_values": [
+    -90.0,
+    -60.0,
+    -30.0,
+    0.0,
+    30.0,
+    60.0,
+    90.0
+  ]
+}

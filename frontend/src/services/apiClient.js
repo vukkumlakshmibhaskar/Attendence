@@ -35,7 +35,7 @@ export async function apiRequest(path, options = {}) {
     payload = JSON.parse(text);
   }
   if (!response.ok) {
-    throw new Error(payload?.error || text || `Request failed with ${response.status}`);
+    throw new Error(payload?.error || payload?.detail || text || `Request failed with ${response.status}`);
   }
   if (text && !contentType.includes("application/json")) {
     throw new Error(`Expected JSON response but received: ${text.slice(0, 160)}`);

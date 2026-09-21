@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Classroom Attendance & Cognitive Analysis</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --panel: #111827;
+      --card: #1f2937;
+      --card-hover: #283548;
+      --border: #374151;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --accent: #8b5cf6;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+    
+    /* Top Navigation Bar */
+    header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+    .brand { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.15rem; color: #fff; }
+    .brand-icon { background: linear-gradient(135deg, var(--primary), var(--accent)); width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+    nav { display: flex; gap: 0.35rem; }
+    .nav-btn { background: transparent; border: none; color: var(--text-muted); padding: 0.5rem 0.85rem; border-radius: 6px; cursor: pointer; font-size: 0.9rem; font-weight: 500; transition: all 0.15s; display: flex; align-items: center; gap: 0.4rem; }
+    .nav-btn:hover { color: #fff; background: rgba(255,255,255,0.06); }
+    .nav-btn.active { color: #fff; background: var(--primary); }
+    .user-panel { display: flex; align-items: center; gap: 0.85rem; }
+    .badge { padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge-admin { background: rgba(139, 92, 246, 0.2); color: #c4b5fd; border: 1px solid #8b5cf6; }
+    .badge-teacher { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid #3b82f6; }
+    .btn-logout { background: transparent; border: 1px solid var(--border); color: var(--text-muted); padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.82rem; }
+    .btn-logout:hover { color: var(--danger); border-color: var(--danger); }
+
+    /* Layout & Panels */
+    main { flex: 1; padding: 1.5rem; max-width: 1400px; margin: 0 auto; width: 100%; }
+    .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; }
+    .section-title { font-size: 1.4rem; font-weight: 700; }
+    .section-desc { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; }
+    .actions { display: flex; gap: 0.6rem; }
+    
+    /* Common UI Elements */
+    button, .btn { background: var(--primary); color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.875rem; transition: background 0.15s; display: inline-flex; align-items: center; gap: 0.4rem; }
+    button:hover { background: var(--primary-hover); }
+    button.btn-secondary { background: var(--card); border: 1px solid var(--border); color: var(--text); }
+    button.btn-secondary:hover { background: var(--border); }
+    button.btn-danger { background: rgba(239, 68, 68, 0.15); border: 1px solid var(--danger); color: #fca5a5; }
+    button.btn-danger:hover { background: var(--danger); color: #fff; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    input, select { background: #182234; border: 1px solid var(--border); color: #fff; padding: 0.55rem 0.75rem; border-radius: 6px; font-size: 0.9rem; outline: none; width: 100%; }
+    input:focus, select:focus { border-color: var(--primary); }
+
+    /* Cards & Stats Grid */
+    .grid-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .card-kpi { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.2rem; }
+    .card-kpi .label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+    .card-kpi .value { font-size: 1.9rem; font-weight: 700; margin-top: 0.35rem; color: #fff; }
+
+    /* Tables */
+    .table-container { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; margin-bottom: 1.5rem; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+    th { background: #162032; padding: 0.85rem 1rem; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--border); }
+    td { padding: 0.85rem 1rem; border-bottom: 1px solid rgba(55, 65, 81, 0.5); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+    .pill { display: inline-block; padding: 0.2rem 0.55rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .pill-green { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); }
+    .pill-yellow { background: rgba(245, 158, 11, 0.2); color: #fde68a; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .pill-blue { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.4); }
+    .pill-gray { background: rgba(156, 163, 175, 0.2); color: #d1d5db; border: 1px solid rgba(156, 163, 175, 0.4); }
+
+    /* Charts row */
+    .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.25rem; margin-bottom: 1.5rem; }
+    @media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+    .chart-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.2rem; }
+    .chart-card h3 { font-size: 1rem; margin-bottom: 1rem; color: #fff; }
+    canvas { width: 100%; height: 230px; }
+
+    /* Modals */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+    .modal { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.6); }
+    .modal-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .modal-title { font-weight: 700; font-size: 1.1rem; }
+    .modal-close { background: transparent; border: none; font-size: 1.3rem; color: var(--text-muted); cursor: pointer; line-height: 1; }
+    .modal-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 0.9rem; }
+    .modal-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+    /* Live Recognition & Camera Panels */
+    .live-container { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.5rem; }
+    @media (max-width: 950px) { .live-container { grid-template-columns: 1fr; } }
+    .video-wrapper { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center; }
+    video { width: 100%; height: 100%; object-fit: cover; }
+    .overlay-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .cam-hud { position: absolute; bottom: 0.75rem; left: 0.75rem; right: 0.75rem; display: flex; justify-content: space-between; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); padding: 0.5rem 0.85rem; border-radius: 8px; font-size: 0.8rem; }
+    
+    .match-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; display: flex; flex-direction: column; gap: 0.85rem; }
+    .metric-row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.4rem; font-size: 0.88rem; }
+    .metric-row .name { color: var(--text-muted); }
+    .metric-row .val { font-weight: 600; color: #fff; }
+
+    /* 5-Pose Enrollment Modal Specifics */
+    .pose-guide { background: rgba(59, 130, 246, 0.1); border: 1px solid var(--primary); border-radius: 8px; padding: 0.75rem; text-align: center; }
+    .pose-steps { display: flex; gap: 0.5rem; justify-content: center; margin: 0.5rem 0; }
+    .step-dot { width: 28px; height: 28px; border-radius: 50%; background: var(--card); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); }
+    .step-dot.completed { background: var(--success); color: #fff; border-color: var(--success); }
+    .step-dot.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    /* Auth Screens */
+    .auth-wrapper { min-height: 80vh; display: flex; align-items: center; justify-content: center; }
+    .auth-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 2.25rem; width: 100%; max-width: 420px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .auth-card h2 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+    .auth-card p { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem; }
+    .auth-card .form-group { margin-bottom: 1rem; }
+    .auth-card label { display: block; font-size: 0.8rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text-muted); }
+
+    .toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: var(--card); border: 1px solid var(--border); padding: 0.75rem 1.25rem; border-radius: 8px; box-shadow: 0 10px 15px rgba(0,0,0,0.4); z-index: 200; font-size: 0.9rem; transform: translateY(100px); opacity: 0; transition: all 0.25s; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+  </style>
+</head>
+<body>
+
+  <!-- TOP NAVIGATION BAR -->
+  <header id="top-nav" style="display: none;">
+    <div class="brand">
+      <div class="brand-icon">🎓</div>
+      <span>Attendance & Cognitive Suite</span>
+    </div>
+    <nav>
+      <button class="nav-btn active" onclick="switchTab('dashboard')">📊 Dashboard</button>
+      <button class="nav-btn" onclick="switchTab('teachers')">👨‍🏫 Teachers</button>
+      <button class="nav-btn" onclick="switchTab('students')">🎓 Students</button>
+      <button class="nav-btn" onclick="switchTab('academics')">📚 Academics</button>
+      <button class="nav-btn" onclick="switchTab('attendance')">⏱️ Attendance</button>
+      <button class="nav-btn" onclick="switchTab('recognition')">👁️ Live Recognition</button>
+    </nav>
+    <div class="user-panel">
+      <span id="user-display-name" style="font-size: 0.9rem; font-weight: 600;"></span>
+      <span id="user-role-badge" class="badge badge-admin">admin</span>
+      <button class="btn-logout" onclick="logout()">Sign Out</button>
+    </div>
+  </header>
+
+  <main id="app-container">
+    <!-- Dynamic View Containers -->
+    <div id="view-auth"></div>
+    <div id="view-dashboard" style="display: none;"></div>
+    <div id="view-teachers" style="display: none;"></div>
+    <div id="view-students" style="display: none;"></div>
+    <div id="view-academics" style="display: none;"></div>
+    <div id="view-attendance" style="display: none;"></div>
+    <div id="view-recognition" style="display: none;"></div>
+  </main>
+
+  <div id="modal-container"></div>
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // =====================================================================
+    // STATE & INITIALIZATION
+    // =====================================================================
+    const API = "";
+    let state = {
+      token: localStorage.getItem("token") || "",
+      user: JSON.parse(localStorage.getItem("user") || "null"),
+      org: JSON.parse(localStorage.getItem("org") || "null"),
+      currentTab: "dashboard",
+      camStream: null,
+      camInterval: null,
+      classes: [],
+      subjects: [],
+      teachers: [],
+      students: []
+    };
+
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.innerText = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 3200);
+    }
+
+    async function req(path, opts = {}) {
+      const headers = { "Content-Type": "application/json" };
+      if (state.token) headers["Authorization"] = `Bearer ${state.token}`;
+      opts.headers = { ...headers, ...opts.headers };
+      const res = await fetch(`${API}${path}`, opts);
+      if (res.status === 401 && !path.includes("/api/auth/")) {
+        logout();
+        throw new Error("Session expired");
+      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Request failed");
+      return data;
+    }
+
+    async function init() {
+      try {
+        const status = await req("/api/auth/setup-status");
+        if (!status.setup_complete) {
+          renderSetup();
+          return;
+        }
+        if (state.token) {
+          try {
+            const me = await req("/api/auth/me");
+            state.user = me.user;
+            state.org = me.organization;
+            renderApp();
+            return;
+          } catch (e) {
+            localStorage.clear();
+          }
+        }
+        renderLogin();
+      } catch (err) {
+        showToast(`Initialization error: ${err.message}`);
+        renderLogin();
+      }
+    }
+
+    // =====================================================================
+    // AUTHENTICATION VIEWS
+    // =====================================================================
+    function renderSetup() {
+      document.getElementById("top-nav").style.display = "none";
+      document.getElementById("view-auth").innerHTML = `
+        <div class="auth-wrapper">
+          <div class="auth-card">
+            <h2>Organization Setup</h2>
+            <p>Initialize your classroom attendance & cognitive system.</p>
+            <form onsubmit="handleSetup(event)">
+              <div class="form-group">
+                <label>Organization / School Name</label>
+                <input id="setup-org" placeholder="e.g. Apex High School" required />
+              </div>
+              <div class="form-group">
+                <label>Admin Full Name</label>
+                <input id="setup-name" placeholder="e.g. Principal Davis" required />
+              </div>
+              <div class="form-group">
+                <label>Admin Email</label>
+                <input id="setup-email" type="email" placeholder="admin@school.edu" required />
+              </div>
+              <div class="form-group">
+                <label>Password (at least 8 chars)</label>
+                <input id="setup-pass" type="password" minlength="8" required />
+              </div>
+              <button type="submit" style="width: 100%; margin-top: 1rem;">Complete Setup</button>
+            </form>
+          </div>
+        </div>
+      `;
+    }
+
+    async function handleSetup(e) {
+      e.preventDefault();
+      try {
+        const payload = {
+          organization_name: document.getElementById("setup-org").value,
+          admin_name: document.getElementById("setup-name").value,
+          email: document.getElementById("setup-email").value,
+          password: document.getElementById("setup-pass").value
+        };
+        const data = await req("/api/auth/setup", { method: "POST", body: JSON.stringify(payload) });
+        state.token = data.token;
+        state.user = data.user;
+        state.org = data.organization;
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+        localStorage.setItem("org", JSON.stringify(data.organization));
+        renderApp();
+      } catch (err) {
+        showToast(err.message);
+      }
+    }
+
+    function renderLogin() {
+      document.getElementById("top-nav").style.display = "none";
+      document.getElementById("view-auth").innerHTML = `
+        <div class="auth-wrapper">
+          <div class="auth-card">
+            <h2>Welcome Back</h2>
+            <p>Sign in to your Attendance & Cognitive account</p>
+            <form onsubmit="handleLogin(event)">
+              <div class="form-group">
+                <label>Email Address</label>
+                <input id="login-email" type="email" required />
+              </div>
+              <div class="form-group">
+                <label>Password</label>
+                <input id="login-pass" type="password" required />
+              </div>
+              <button type="submit" style="width: 100%; margin-top: 1rem;">Sign In</button>
+            </form>
+          </div>
+        </div>
+      `;
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      try {
+        const payload = {
+          email: document.getElementById("login-email").value,
+          password: document.getElementById("login-pass").value
+        };
+        const data = await req("/api/auth/login", { method: "POST", body: JSON.stringify(payload) });
+        state.token = data.token;
+        state.user = data.user;
+        state.org = data.organization;
+        localStorage.setItem("token", data.token);
+        localStorage.setItem("user", JSON.stringify(data.user));
+        localStorage.setItem("org", JSON.stringify(data.organization));
+        renderApp();
+      } catch (err) {
+        showToast(err.message);
+      }
+    }
+
+    function logout() {
+      stopLiveCamera();
+      localStorage.clear();
+      state.token = "";
+      state.user = null;
+      renderLogin();
+    }
+
+    function renderApp() {
+      document.getElementById("view-auth").innerHTML = "";
+      document.getElementById("top-nav").style.display = "flex";
+      document.getElementById("user-display-name").innerText = state.user.name;
+      const roleBadge = document.getElementById("user-role-badge");
+      roleBadge.innerText = state.user.role;
+      roleBadge.className = `badge badge-${state.user.role}`;
+      switchTab(state.currentTab);
+    }
+
+    function switchTab(tab) {
+      state.currentTab = tab;
+      if (tab !== "recognition") stopLiveCamera();
+      document.querySelectorAll("nav .nav-btn").forEach(b => b.classList.remove("active"));
+      const activeBtn = Array.from(document.querySelectorAll("nav .nav-btn")).find(b => b.innerText.toLowerCase().includes(tab.toLowerCase()));
+      if (activeBtn) activeBtn.classList.add("active");
+
+      const views = ["dashboard", "teachers", "students", "academics", "attendance", "recognition"];
+      views.forEach(v => document.getElementById(`view-${v}`).style.display = (v === tab ? "block" : "none"));
+
+      if (tab === "dashboard") loadDashboard();
+      if (tab === "teachers") loadTeachers();
+      if (tab === "students") loadStudents();
+      if (tab === "academics") loadAcademics();
+      if (tab === "attendance") loadAttendance();
+      if (tab === "recognition") renderRecognitionTab();
+    }
+
+    // =====================================================================
+    // 1. DASHBOARD TAB
+    // =====================================================================
+    async function loadDashboard() {
+      const container = document.getElementById("view-dashboard");
+      container.innerHTML = `<p style="color: var(--text-muted);">Loading analytics...</p>`;
+      try {
+        const d = await req("/api/dashboard");
+        container.innerHTML = `
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">Dashboard Overview</h1>
+              <p class="section-desc">Classroom real-time analytics & attendance mix</p>
+            </div>
+          </div>
+
+          <div class="grid-kpi">
+            <div class="card-kpi"><div class="label">Total Students</div><div class="value">${d.total_students}</div></div>
+            <div class="card-kpi"><div class="label">Total Teachers</div><div class="value">${d.total_teachers}</div></div>
+            <div class="card-kpi"><div class="label">Academic Classes</div><div class="value">${d.classes}</div></div>
+            <div class="card-kpi"><div class="label">Subjects</div><div class="value">${d.subjects}</div></div>
+            <div class="card-kpi"><div class="label">Sessions Today</div><div class="value">${d.today_sessions}</div></div>
+            <div class="card-kpi"><div class="label">Review Queue</div><div class="value" style="color: var(--warning);">${d.review_queue}</div></div>
+          </div>
+
+          <div class="charts-grid">
+            <div class="chart-card">
+              <h3>Weekly Operations Activity</h3>
+              <canvas id="canvas-ops"></canvas>
+            </div>
+            <div class="chart-card">
+              <h3>Attendance Mix</h3>
+              <canvas id="canvas-mix"></canvas>
+            </div>
+          </div>
+
+          <div class="section-header" style="margin-top: 2rem;">
+            <h3>Active Classroom Sessions</h3>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Session Title</th>
+                  <th>Class / Section</th>
+                  <th>Status</th>
+                  <th>Start Time</th>
+                  <th>End Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${d.active_sessions.length ? d.active_sessions.map(s => `
+                  <tr>
+                    <td style="font-weight:600;">${s.title}</td>
+                    <td>${s.class_id || "Classroom"}</td>
+                    <td><span class="pill pill-green">${s.status}</span></td>
+                    <td>${s.start_time || "N/A"}</td>
+                    <td>${s.end_time || "N/A"}</td>
+                  </tr>
+                `).join('') : `<tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No active sessions</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        `;
+
+        drawBarChart("canvas-ops", d.weekly_classroom_operations);
+        drawDonutChart("canvas-mix", d.attendance_mix);
+      } catch (err) {
+        container.innerHTML = `<p style="color: var(--danger);">Failed to load dashboard: ${err.message}</p>`;
+      }
+    }
+
+    function drawBarChart(canvasId, points = []) {
+      const cvs = document.getElementById(canvasId);
+      if (!cvs) return;
+      const ctx = cvs.getContext("2d");
+      const w = cvs.width = cvs.parentElement.clientWidth - 40;
+      const h = cvs.height = 200;
+      ctx.clearRect(0, 0, w, h);
+
+      if (!points.length) return;
+      const maxVal = Math.max(...points.map(p => p.value), 10);
+      const barW = (w - (points.length * 20)) / points.length;
+
+      points.forEach((p, i) => {
+        const x = 20 + i * (barW + 20);
+        const barH = (p.value / maxVal) * (h - 50);
+        const y = h - 30 - barH;
+
+        ctx.fillStyle = "#3b82f6";
+        ctx.beginPath();
+        ctx.roundRect(x, y, barW, barH, [4, 4, 0, 0]);
+        ctx.fill();
+
+        ctx.fillStyle = "#9ca3af";
+        ctx.font = "12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(p.label, x + barW/2, h - 10);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(p.value, x + barW/2, y - 5);
+      });
+    }
+
+    function drawDonutChart(canvasId, items = []) {
+      const cvs = document.getElementById(canvasId);
+      if (!cvs) return;
+      const ctx = cvs.getContext("2d");
+      const w = cvs.width = cvs.parentElement.clientWidth - 40;
+      const h = cvs.height = 200;
+      ctx.clearRect(0, 0, w, h);
+
+      const total = items.reduce((sum, i) => sum + i.value, 0) || 1;
+      const colors = ["#10b981", "#f59e0b", "#8b5cf6", "#ef4444"];
+      let startAngle = 0;
+      const cx = w / 2 - 30;
+      const cy = h / 2;
+      const radius = 65;
+
+      items.forEach((item, idx) => {
+        const sliceAngle = (item.value / total) * 2 * Math.PI;
+        ctx.fillStyle = colors[idx % colors.length];
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius, startAngle, startAngle + sliceAngle);
+        ctx.arc(cx, cy, radius - 24, startAngle + sliceAngle, startAngle, true);
+        ctx.closePath();
+        ctx.fill();
+        startAngle += sliceAngle;
+
+        // Legend
+        ctx.fillRect(w - 75, 30 + idx * 24, 12, 12);
+        ctx.fillStyle = "#f9fafb";
+        ctx.font = "11px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(`${item.label} (${item.value})`, w - 55, 41 + idx * 24);
+      });
+    }
+
+    // =====================================================================
+    // 2. TEACHERS TAB
+    // =====================================================================
+    async function loadTeachers() {
+      const c = document.getElementById("view-teachers");
+      c.innerHTML = `<p style="color: var(--text-muted);">Loading teachers...</p>`;
+      try {
+        const teachers = await req("/api/teachers");
+        state.teachers = teachers;
+        c.innerHTML = `
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">Teachers Directory</h1>
+              <p class="section-desc">Manage faculty accounts and biometric enrollment</p>
+            </div>
+            ${state.user.role === 'admin' ? `<button onclick="openModal('addTeacher')">➕ Add Teacher</button>` : ''}
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Faculty Name</th>
+                  <th>Email</th>
+                  <th>Biometric Status</th>
+                  <th>Account Status</th>
+                  <th style="text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${teachers.length ? teachers.map(t => `
+                  <tr>
+                    <td style="font-weight: 600;">${t.name}</td>
+                    <td>${t.email}</td>
+                    <td>
+                      <span class="pill ${t.face_pose_count >= 5 ? 'pill-green' : (t.face_pose_count > 0 ? 'pill-yellow' : 'pill-gray')}">
+                        ${t.face_enrollment_status}
+                      </span>
+                    </td>
+                    <td><span class="pill pill-blue">${t.status}</span></td>
+                    <td style="text-align: right;">
+                      ${state.user.role === 'admin' ? `
+                        <button class="btn-secondary" onclick="openEnrollmentModal('teacher', '${t.id}', '${t.name}')">📸 Enroll Face</button>
+                        <button class="btn-danger" onclick="deleteTeacher('${t.id}')">🗑️</button>
+                      ` : ''}
+                    </td>
+                  </tr>
+                `).join('') : `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No teachers registered yet</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } catch (err) {
+        c.innerHTML = `<p style="color: var(--danger);">${err.message}</p>`;
+      }
+    }
+
+    async function deleteTeacher(id) {
+      if (!confirm("Are you sure you want to delete this teacher account?")) return;
+      try {
+        await req(`/api/teachers/${id}`, { method: "DELETE" });
+        showToast("Teacher deleted successfully");
+        loadTeachers();
+      } catch (err) {
+        showToast(err.message);
+      }
+    }
+
+    // =====================================================================
+    // 3. STUDENTS TAB
+    // =====================================================================
+    async function loadStudents() {
+      const c = document.getElementById("view-students");
+      c.innerHTML = `<p style="color: var(--text-muted);">Loading students...</p>`;
+      try {
+        const [students, classes] = await Promise.all([req("/api/students"), req("/api/academics/classes")]);
+        state.students = students;
+        state.classes = classes;
+
+        c.innerHTML = `
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">Students Roster</h1>
+              <p class="section-desc">Enrolled pupils, class distribution, and face datasets</p>
+            </div>
+            ${state.user.role === 'admin' ? `<button onclick="openModal('addStudent')">➕ Add Student</button>` : ''}
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Student Name</th>
+                  <th>Student ID</th>
+                  <th>Class / Section</th>
+                  <th>Biometric Status</th>
+                  <th>Consent</th>
+                  <th style="text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${students.length ? students.map(s => `
+                  <tr>
+                    <td style="font-weight: 600;">${s.name}</td>
+                    <td><code>${s.student_id}</code></td>
+                    <td>${s.class_name ? `${s.class_name} ${s.section}` : '<span style="color:var(--text-muted);">Unassigned</span>'}</td>
+                    <td>
+                      <span class="pill ${s.face_pose_count >= 5 ? 'pill-green' : (s.face_pose_count > 0 ? 'pill-yellow' : 'pill-gray')}">
+                        ${s.face_enrollment_status}
+                      </span>
+                    </td>
+                    <td><span class="pill pill-blue">${s.consent_status}</span></td>
+                    <td style="text-align: right;">
+                      ${state.user.role === 'admin' ? `
+                        <button class="btn-secondary" onclick="openEnrollmentModal('student', '${s.id}', '${s.name}')">📸 Enroll Face</button>
+                        <button class="btn-danger" onclick="deleteStudent('${s.id}')">🗑️</button>
+                      ` : ''}
+                    </td>
+                  </tr>
+                `).join('') : `<tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No students registered</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } catch (err) {
+        c.innerHTML = `<p style="color: var(--danger);">${err.message}</p>`;
+      }
+    }
+
+    async function deleteStudent(id) {
+      if (!confirm("Are you sure you want to delete this student record?")) return;
+      try {
+        await req(`/api/students/${id}`, { method: "DELETE" });
+        showToast("Student deleted");
+        loadStudents();
+      } catch (err) {
+        showToast(err.message);
+      }
+    }
+
+    // =====================================================================
+    // 4. ACADEMICS TAB
+    // =====================================================================
+    async function loadAcademics() {
+      const c = document.getElementById("view-academics");
+      c.innerHTML = `<p style="color: var(--text-muted);">Loading academic structures...</p>`;
+      try {
+        const [classes, subjects, assignments, teachers] = await Promise.all([
+          req("/api/academics/classes"),
+          req("/api/academics/subjects"),
+          req("/api/academics/assignments"),
+          req("/api/teachers")
+        ]);
+        state.classes = classes;
+        state.subjects = subjects;
+        state.teachers = teachers;
+
+        c.innerHTML = `
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">Academic Management</h1>
+              <p class="section-desc">Classes, Subjects, and Faculty Course Assignments</p>
+            </div>
+            ${state.user.role === 'admin' ? `
+              <div class="actions">
+                <button class="btn-secondary" onclick="openModal('addClass')">➕ Class</button>
+                <button class="btn-secondary" onclick="openModal('addSubject')">➕ Subject</button>
+                <button onclick="openModal('addAssignment')">🔗 Assign Course</button>
+              </div>
+            ` : ''}
+          </div>
+
+          <h3 style="margin-bottom:0.75rem;">Faculty Course Assignments</h3>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Teacher</th>
+                  <th>Class / Section</th>
+                  <th>Subject</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${assignments.length ? assignments.map(a => `
+                  <tr>
+                    <td style="font-weight:600;">${a.teacher_name}</td>
+                    <td>${a.class_name} ${a.section}</td>
+                    <td><span class="pill pill-blue">${a.subject_name}</span></td>
+                  </tr>
+                `).join('') : `<tr><td colspan="3" style="text-align:center; color:var(--text-muted);">No assignments yet</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+            <div>
+              <h3 style="margin-bottom:0.75rem;">Classes</h3>
+              <div class="table-container">
+                <table>
+                  <thead><tr><th>Name</th><th>Section</th><th>Grade</th></tr></thead>
+                  <tbody>
+                    ${classes.map(cl => `<tr><td>${cl.name}</td><td>${cl.section || '-'}</td><td>${cl.grade_level || '-'}</td></tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div>
+              <h3 style="margin-bottom:0.75rem;">Subjects</h3>
+              <div class="table-container">
+                <table>
+                  <thead><tr><th>Subject Name</th><th>Code</th></tr></thead>
+                  <tbody>
+                    ${subjects.map(su => `<tr><td>${su.name}</td><td><code>${su.code || '-'}</code></td></tr>`).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        c.innerHTML = `<p style="color: var(--danger);">${err.message}</p>`;
+      }
+    }
+
+    // =====================================================================
+    // 5. ATTENDANCE TAB
+    // =====================================================================
+    async function loadAttendance() {
+      const c = document.getElementById("view-attendance");
+      c.innerHTML = `<p style="color: var(--text-muted);">Loading attendance data...</p>`;
+      try {
+        const [sessions, events, cameras, classes, subjects, teachers] = await Promise.all([
+          req("/api/attendance/sessions"),
+          req("/api/attendance/events"),
+          req("/api/cameras"),
+          req("/api/academics/classes"),
+          req("/api/academics/subjects"),
+          req("/api/teachers")
+        ]);
+        state.classes = classes;
+        state.subjects = subjects;
+        state.teachers = teachers;
+
+        c.innerHTML = `
+          <div class="section-header">
+            <div>
+              <h1 class="section-title">Attendance Operations</h1>
+              <p class="section-desc">Classroom attendance sessions, event stream, and corrections</p>
+            </div>
+            ${state.user.role === 'admin' ? `
+              <div class="actions">
+                <button onclick="openModal('createSession')">⏱️ Create Session</button>
+                <button class="btn-secondary" onclick="openModal('simulate')">🧪 Test Simulation</button>
+              </div>
+            ` : ''}
+          </div>
+
+          <h3 style="margin-bottom:0.75rem;">Scheduled & Active Sessions</h3>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th>Class</th>
+                  <th>Subject</th>
+                  <th>Teacher</th>
+                  <th>Start Time</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sessions.length ? sessions.map(s => `
+                  <tr>
+                    <td style="font-weight:600;">${s.title}</td>
+                    <td>${s.class_name || 'N/A'}</td>
+                    <td>${s.subject_name || 'N/A'}</td>
+                    <td>${s.teacher_name || 'N/A'}</td>
+                    <td>${s.start_time || 'N/A'}</td>
+                    <td><span class="pill pill-green">${s.status}</span></td>
+                  </tr>
+                `).join('') : `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No sessions found</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+
+          <h3 style="margin-bottom:0.75rem;">Real-time Attendance Events</h3>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Student Name</th>
+                  <th>Session</th>
+                  <th>Status</th>
+                  <th>Confidence</th>
+                  <th>Source</th>
+                  <th>Timestamp</th>
+                  <th style="text-align:right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${events.length ? events.map(e => `
+                  <tr>
+                    <td style="font-weight:600;">${e.student_name}</td>
+                    <td>${e.session_title}</td>
+                    <td>
+                      <span class="pill ${e.status === 'present' ? 'pill-green' : (e.status === 'late' ? 'pill-yellow' : 'pill-gray')}">
+                        ${e.status}
+                      </span>
+                    </td>
+                    <td>${Math.round(e.confidence * 100)}%</td>
+                    <td><code>${e.source}</code></td>
+                    <td>${new Date(e.occurred_at).toLocaleTimeString()}</td>
+                    <td style="text-align:right;">
+                      ${state.user.role === 'admin' ? `
+                        <button class="btn-secondary" onclick="openCorrectionModal('${e.id}', '${e.student_name}', '${e.status}')">✏️ Correct</button>
+                      ` : ''}
+                    </td>
+                  </tr>
+                `).join('') : `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No attendance events recorded</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } catch (err) {
+        c.innerHTML = `<p style="color: var(--danger);">${err.message}</p>`;
+      }
+    }
+
+    // =====================================================================
+    // 6. LIVE RECOGNITION TAB
+    // =====================================================================
+    function renderRecognitionTab() {
+      const c = document.getElementById("view-recognition");
+      c.innerHTML = `
+        <div class="section-header">
+          <div>
+            <h1 class="section-title">Live Face Recognition & Cognitive Monitoring</h1>
+            <p class="section-desc">Real-time webcam matching against the CPU vector cache</p>
+          </div>
+          <div class="actions">
+            <button id="btn-start-cam" onclick="startLiveCamera()">▶️ Start Camera</button>
+            <button id="btn-stop-cam" class="btn-secondary" onclick="stopLiveCamera()" disabled>⏹️ Stop Camera</button>
+          </div>
+        </div>
+
+        <div class="live-container">
+          <div class="video-wrapper">
+            <video id="live-video" autoplay muted playsinline></video>
+            <canvas id="live-overlay" class="overlay-canvas"></canvas>
+            <div id="cam-status-hud" class="cam-hud">
+              <span>Status: <strong id="hud-status">Camera Offline</strong></span>
+              <span>Sample Rate: <strong>1.5s</strong></span>
+            </div>
+          </div>
+
+          <div class="match-card">
+            <h3>Recognition & Cognitive Analysis</h3>
+            
+            <div id="match-info-box" style="margin-top:0.5rem;">
+              <p style="color: var(--text-muted); font-size: 0.9rem;">Start the camera to begin recognizing enrolled students and teachers.</p>
+            </div>
+
+            <div style="margin-top: 1rem;">
+              <h4 style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase;">Cognitive Telemetry</h4>
+              <div class="metric-row"><span class="name">Emotion / State</span><span class="val" id="cog-emotion">-</span></div>
+              <div class="metric-row"><span class="name">Gaze Direction</span><span class="val" id="cog-gaze">-</span></div>
+              <div class="metric-row"><span class="name">Anti-Spoof Liveness</span><span class="val" id="cog-liveness">-</span></div>
+              <div class="metric-row"><span class="name">Processing Latency</span><span class="val" id="cog-ms">-</span></div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function startLiveCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        state.camStream = stream;
+        const video = document.getElementById("live-video");
+        video.srcObject = stream;
+        document.getElementById("btn-start-cam").disabled = true;
+        document.getElementById("btn-stop-cam").disabled = false;
+        document.getElementById("hud-status").innerText = "Analyzing Live Feed...";
+
+        state.camInterval = setInterval(sampleAndIdentify, 1500);
+      } catch (err) {
+        showToast(`Camera error: ${err.message}`);
+      }
+    }
+
+    function stopLiveCamera() {
+      if (state.camInterval) clearInterval(state.camInterval);
+      if (state.camStream) {
+        state.camStream.getTracks().forEach(t => t.stop());
+        state.camStream = null;
+      }
+      const video = document.getElementById("live-video");
+      if (video) video.srcObject = null;
+      const startBtn = document.getElementById("btn-start-cam");
+      if (startBtn) startBtn.disabled = false;
+      const stopBtn = document.getElementById("btn-stop-cam");
+      if (stopBtn) stopBtn.disabled = true;
+      const hud = document.getElementById("hud-status");
+      if (hud) hud.innerText = "Camera Stopped";
+      const overlay = document.getElementById("live-overlay");
+      if (overlay) {
+        const ctx = overlay.getContext("2d");
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+      }
+    }
+
+    async function sampleAndIdentify() {
+      const video = document.getElementById("live-video");
+      if (!video || !video.videoWidth) return;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0);
+      const b64 = canvas.toDataURL("image/jpeg", 0.85);
+
+      try {
+        const res = await req("/api/recognition/identify", {
+          method: "POST",
+          body: JSON.stringify({ image_base64: b64 })
+        });
+        updateLiveOverlay(res, canvas.width, canvas.height);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function updateLiveOverlay(data, frameW, frameH) {
+      const overlay = document.getElementById("live-overlay");
+      if (!overlay) return;
+      const ctx = overlay.getContext("2d");
+      overlay.width = frameW;
+      overlay.height = frameH;
+      ctx.clearRect(0, 0, frameW, frameH);
+
+      const infoBox = document.getElementById("match-info-box");
+      const results = data.results || [];
+
+      if (!results.length) {
+        infoBox.innerHTML = `<p style="color: var(--text-muted);">Searching for faces in frame...</p>`;
+        return;
+      }
+
+      results.forEach(r => {
+        const b = r.box;
+        const isRecognized = r.attendance_status === "identified";
+        ctx.strokeStyle = isRecognized ? "#10b981" : "#f59e0b";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(b.x, b.y, b.width, b.height);
+
+        ctx.fillStyle = isRecognized ? "#10b981" : "#f59e0b";
+        ctx.font = "bold 14px sans-serif";
+        const label = isRecognized ? `${r.full_name} (${Math.round(r.recognition_confidence * 100)}%)` : "Unknown Face";
+        ctx.fillText(label, b.x + 4, b.y > 20 ? b.y - 6 : b.y + 16);
+
+        if (isRecognized) {
+          infoBox.innerHTML = `
+            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid #10b981; border-radius: 8px; padding: 0.75rem;">
+              <h4 style="color: #6ee7b7; font-size: 1.1rem; margin-bottom: 0.3rem;">${r.full_name}</h4>
+              <p style="font-size: 0.85rem; color: #fff;">Role: <strong>${r.person_type}</strong> | ID: <code>${r.external_student_id || r.email}</code></p>
+              <p style="font-size: 0.85rem; margin-top: 0.2rem;">Confidence: <strong style="color: #10b981;">${Math.round(r.recognition_confidence * 100)}%</strong></p>
+            </div>
+          `;
+        } else {
+          infoBox.innerHTML = `
+            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid #f59e0b; border-radius: 8px; padding: 0.75rem;">
+              <h4 style="color: #fde68a;">Unregistered Face</h4>
+              <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem;">Distance: ${r.recognition_distance} (above match threshold)</p>
+            </div>
+          `;
+        }
+
+        // Cognitive telemetry
+        if (r.cognitive) {
+          const cog = r.cognitive;
+          document.getElementById("cog-emotion").innerText = `${cog.emotion?.label || 'N/A'} (${Math.round((cog.emotion?.confidence||0)*100)}%)`;
+          document.getElementById("cog-gaze").innerText = `${cog.gaze?.label || 'N/A'} (${Math.round((cog.gaze?.confidence||0)*100)}%)`;
+          document.getElementById("cog-liveness").innerHTML = cog.liveness?.is_live
+            ? `<span style="color: #10b981; font-weight:700;">🟢 Live (Real Person)</span>`
+            : `<span style="color: #ef4444; font-weight:700;">🔴 Spoof Alert</span>`;
+          document.getElementById("cog-ms").innerText = `${cog.processing_ms || 0} ms`;
+        }
+      });
+    }
+
+    // =====================================================================
+    // 7. GUIDED 5-POSE ENROLLMENT MODAL
+    // =====================================================================
+    let enrollState = {
+      type: "student",
+      entityId: "",
+      entityName: "",
+      stepIndex: 0,
+      stream: null,
+      poses: [
+        { key: "front", label: "Pose 1: Front", desc: "Look directly straight at the camera." },
+        { key: "left", label: "Pose 2: Left Profile", desc: "Turn your head slightly to your left." },
+        { key: "right", label: "Pose 3: Right Profile", desc: "Turn your head slightly to your right." },
+        { key: "look_up", label: "Pose 4: Look Up", desc: "Tilt your head slightly upwards." },
+        { key: "look_down", label: "Pose 5: Look Down", desc: "Tilt your head slightly downwards." }
+      ]
+    };
+
+    function openEnrollmentModal(type, id, name) {
+      enrollState.type = type;
+      enrollState.entityId = id;
+      enrollState.entityName = name;
+      enrollState.stepIndex = 0;
+
+      const mc = document.getElementById("modal-container");
+      mc.innerHTML = `
+        <div class="modal-overlay">
+          <div class="modal" style="max-width: 580px;">
+            <div class="modal-header">
+              <span class="modal-title">Biometric Enrollment: ${name}</span>
+              <button class="modal-close" onclick="closeEnrollmentModal()">×</button>
+            </div>
+            <div class="modal-body">
+              <div class="pose-guide">
+                <h4 id="enroll-pose-label">${enrollState.poses[0].label}</h4>
+                <p id="enroll-pose-desc" style="font-size: 0.85rem; color: #fff; margin-top: 0.2rem;">${enrollState.poses[0].desc}</p>
+                <div class="pose-steps">
+                  ${enrollState.poses.map((p, i) => `<div id="dot-${i}" class="step-dot ${i === 0 ? 'active' : ''}">${i + 1}</div>`).join('')}
+                </div>
+              </div>
+
+              <div class="video-wrapper" style="aspect-ratio: 4/3; margin-top: 0.5rem;">
+                <video id="enroll-video" autoplay muted playsinline></video>
+              </div>
+
+              <div style="display: flex; gap: 0.75rem; align-items: center; justify-content: space-between;">
+                <span id="enroll-feedback" style="font-size: 0.85rem; color: var(--text-muted);">Position face inside the view</span>
+                <button id="btn-capture-pose" onclick="captureEnrollmentStep()">📸 Capture & Save Pose</button>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" onclick="closeEnrollmentModal()">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+        .then(st => {
+          enrollState.stream = st;
+          document.getElementById("enroll-video").srcObject = st;
+        })
+        .catch(err => showToast(`Camera permission error: ${err.message}`));
+    }
+
+    async function captureEnrollmentStep() {
+      const video = document.getElementById("enroll-video");
+      if (!video || !video.videoWidth) return;
+
+      const btn = document.getElementById("btn-capture-pose");
+      btn.disabled = true;
+      btn.innerText = "Processing...";
+
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0);
+      const b64 = canvas.toDataURL("image/jpeg", 0.9);
+
+      const poseKey = enrollState.poses[enrollState.stepIndex].key;
+      const endpoint = enrollState.type === "teacher" ? "/api/enrollments/teachers" : "/api/enrollments/students";
+
+      try {
+        await req(endpoint, {
+          method: "POST",
+          body: JSON.stringify({
+            entity_id: enrollState.entityId,
+            pose: poseKey,
+            image_base64: b64
+          })
+        });
+
+        document.getElementById(`dot-${enrollState.stepIndex}`).classList.remove("active");
+        document.getElementById(`dot-${enrollState.stepIndex}`).classList.add("completed");
+        enrollState.stepIndex++;
+
+        if (enrollState.stepIndex < enrollState.poses.length) {
+          const next = enrollState.poses[enrollState.stepIndex];
+          document.getElementById("enroll-pose-label").innerText = next.label;
+          document.getElementById("enroll-pose-desc").innerText = next.desc;
+          document.getElementById(`dot-${enrollState.stepIndex}`).classList.add("active");
+          btn.disabled = false;
+          btn.innerText = "📸 Capture & Save Pose";
+          showToast(`Pose ${enrollState.stepIndex} saved! Ready for next pose.`);
+        } else {
+          showToast("🎉 5-Pose Face Enrollment Complete!");
+          closeEnrollmentModal();
+          if (enrollState.type === "teacher") loadTeachers();
+          else loadStudents();
+        }
+      } catch (err) {
+        showToast(`Capture failed: ${err.message}`);
+        btn.disabled = false;
+        btn.innerText = "📸 Capture & Save Pose";
+      }
+    }
+
+    function closeEnrollmentModal() {
+      if (enrollState.stream) {
+        enrollState.stream.getTracks().forEach(t => t.stop());
+        enrollState.stream = null;
+      }
+      document.getElementById("modal-container").innerHTML = "";
+    }
+
+    // =====================================================================
+    // 8. CRUD MODALS (Teachers, Students, Classes, Sessions)
+    // =====================================================================
+    function openModal(name) {
+      const mc = document.getElementById("modal-container");
+      if (name === "addTeacher") {
+        mc.innerHTML = `
+          <div class="modal-overlay">
+            <div class="modal">
+              <div class="modal-header"><span class="modal-title">Add Faculty Member</span><button class="modal-close" onclick="closeModal()">×</button></div>
+              <div class="modal-body">
+                <input id="m-t-name" placeholder="Teacher Full Name" required />
+                <input id="m-t-email" type="email" placeholder="Faculty Email" required />
+                <input id="m-t-pass" type="password" placeholder="Password (8+ chars)" minlength="8" required />
+              </div>
+              <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button onclick="saveTeacher()">Save Faculty</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (name === "addStudent") {
+        mc.innerHTML = `
+          <div class="modal-overlay">
+            <div class="modal">
+              <div class="modal-header"><span class="modal-title">Enroll New Student</span><button class="modal-close" onclick="closeModal()">×</button></div>
+              <div class="modal-body">
+                <input id="m-s-name" placeholder="Student Full Name" required />
+                <input id="m-s-id" placeholder="Student ID (e.g. STU-1001)" required />
+                <input id="m-s-email" type="email" placeholder="Student Email (optional)" />
+                <select id="m-s-class">
+                  <option value="">Assign to Class...</option>
+                  ${state.classes.map(c => `<option value="${c.id}">${c.name} ${c.section}</option>`).join('')}
+                </select>
+              </div>
+              <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button onclick="saveStudent()">Save Student</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (name === "addClass") {
+        mc.innerHTML = `
+          <div class="modal-overlay">
+            <div class="modal">
+              <div class="modal-header"><span class="modal-title">Create Academic Class</span><button class="modal-close" onclick="closeModal()">×</button></div>
+              <div class="modal-body">
+                <input id="m-c-name" placeholder="Class Name (e.g. Grade 10)" required />
+                <input id="m-c-sec" placeholder="Section (e.g. Section A)" />
+                <input id="m-c-lvl" placeholder="Grade Level" />
+              </div>
+              <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button onclick="saveClass()">Create Class</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (name === "addSubject") {
+        mc.innerHTML = `
+          <div class="modal-overlay">
+            <div class="modal">
+              <div class="modal-header"><span class="modal-title">Create Subject</span><button class="modal-close" onclick="closeModal()">×</button></div>
+              <div class="modal-body">
+                <input id="m-sub-name" placeholder="Subject Name (e.g. Mathematics)" required />
+                <input id="m-sub-code" placeholder="Subject Code (e.g. MATH101)" />
+              </div>
+              <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button onclick="saveSubject()">Create Subject</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (name === "addAssignment") {
+        mc.innerHTML = `
+          <div class="modal-overlay">
+            <div class="modal">
+              <div class="modal-header"><span class="modal-title">Assign Faculty Course</span><button class="modal-close" onclick="closeModal()">×</button></div>
+              <div class="modal-body">
+                <select id="m-a-t">
+                  <option value="">Select Teacher...</option>
+                  ${state.teachers.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+                </select>
+                <select id="m-a-c">
+                  <option value="">Select Class...</option>
+                  ${state.classes.map(c => `<option value="${c.id}">${c.name} ${c.section}</option>`).join('')}
+                </select>
+                <select id="m-a-s">
+                  <option value="">Select Subject...</option>
+                  ${state.subjects.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                </select>
+              </div>
+              <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button onclick="saveAssignment()">Save Assignment</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (name === "createSession") {
+        mc.innerHTML = `
+          <div class="modal-overlay">
+            <div class="modal">
+              <div class="modal-header"><span class="modal-title">Schedule Attendance Session</span><button class="modal-close" onclick="closeModal()">×</button></div>
+              <div class="modal-body">
+                <input id="m-ses-title" placeholder="Session Title (e.g. Period 1 Calculus)" required />
+                <select id="m-ses-c">
+                  <option value="">Select Class...</option>
+                  ${state.classes.map(c => `<option value="${c.id}">${c.name} ${c.section}</option>`).join('')}
+                </select>
+                <select id="m-ses-s">
+                  <option value="">Select Subject...</option>
+                  ${state.subjects.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                </select>
+                <select id="m-ses-t">
+                  <option value="">Select Teacher...</option>
+                  ${state.teachers.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+                </select>
+                <input id="m-ses-start" type="datetime-local" />
+                <input id="m-ses-end" type="datetime-local" />
+              </div>
+              <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button onclick="saveSession()">Create Session</button>
+              </div>
+            </div>
+          </div>
+        `;
+      } else if (name === "simulate") {
+        mc.innerHTML = `
+          <div class="modal-overlay">
+            <div class="modal">
+              <div class="modal-header"><span class="modal-title">Recognition Test Simulation</span><button class="modal-close" onclick="closeModal()">×</button></div>
+              <div class="modal-body">
+                <select id="m-sim-ses">
+                  <option value="">Select Session...</option>
+                  ${(document.querySelectorAll("#view-attendance table")[0]?.rows?.length > 1) ? '<option value="default-session">Default Session</option>' : '<option value="default-session">Session 1</option>'}
+                </select>
+                <select id="m-sim-stu">
+                  <option value="">Select Student...</option>
+                  ${state.students.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                </select>
+                <select id="m-sim-status">
+                  <option value="present">Present</option>
+                  <option value="late">Late</option>
+                  <option value="review">Review</option>
+                  <option value="absent">Absent</option>
+                </select>
+              </div>
+              <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button onclick="runSimulation()">Inject Event</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    function closeModal() {
+      document.getElementById("modal-container").innerHTML = "";
+    }
+
+    async function saveTeacher() {
+      try {
+        await req("/api/teachers", {
+          method: "POST",
+          body: JSON.stringify({
+            name: document.getElementById("m-t-name").value,
+            email: document.getElementById("m-t-email").value,
+            password: document.getElementById("m-t-pass").value
+          })
+        });
+        showToast("Teacher created successfully");
+        closeModal();
+        loadTeachers();
+      } catch (e) { showToast(e.message); }
+    }
+
+    async function saveStudent() {
+      try {
+        await req("/api/students", {
+          method: "POST",
+          body: JSON.stringify({
+            full_name: document.getElementById("m-s-name").value,
+            student_id: document.getElementById("m-s-id").value,
+            email: document.getElementById("m-s-email").value || null,
+            class_id: document.getElementById("m-s-class").value || null
+          })
+        });
+        showToast("Student created");
+        closeModal();
+        loadStudents();
+      } catch (e) { showToast(e.message); }
+    }
+
+    async function saveClass() {
+      try {
+        await req("/api/academics/classes", {
+          method: "POST",
+          body: JSON.stringify({
+            name: document.getElementById("m-c-name").value,
+            section: document.getElementById("m-c-sec").value,
+            grade_level: document.getElementById("m-c-lvl").value
+          })
+        });
+        showToast("Class created");
+        closeModal();
+        loadAcademics();
+      } catch (e) { showToast(e.message); }
+    }
+
+    async function saveSubject() {
+      try {
+        await req("/api/academics/subjects", {
+          method: "POST",
+          body: JSON.stringify({
+            name: document.getElementById("m-sub-name").value,
+            code: document.getElementById("m-sub-code").value
+          })
+        });
+        showToast("Subject created");
+        closeModal();
+        loadAcademics();
+      } catch (e) { showToast(e.message); }
+    }
+
+    async function saveAssignment() {
+      try {
+        await req("/api/academics/assignments", {
+          method: "POST",
+          body: JSON.stringify({
+            teacher_id: document.getElementById("m-a-t").value,
+            class_id: document.getElementById("m-a-c").value,
+            subject_id: document.getElementById("m-a-s").value
+          })
+        });
+        showToast("Course assignment saved");
+        closeModal();
+        loadAcademics();
+      } catch (e) { showToast(e.message); }
+    }
+
+    async function saveSession() {
+      try {
+        await req("/api/attendance/sessions", {
+          method: "POST",
+          body: JSON.stringify({
+            title: document.getElementById("m-ses-title").value,
+            class_id: document.getElementById("m-ses-c").value,
+            subject_id: document.getElementById("m-ses-s").value,
+            teacher_id: document.getElementById("m-ses-t").value,
+            start_time: document.getElementById("m-ses-start").value || new Date().toISOString(),
+            end_time: document.getElementById("m-ses-end").value || new Date().toISOString()
+          })
+        });
+        showToast("Session scheduled");
+        closeModal();
+        loadAttendance();
+      } catch (e) { showToast(e.message); }
+    }
+
+    function openCorrectionModal(eventId, studentName, curStatus) {
+      const mc = document.getElementById("modal-container");
+      mc.innerHTML = `
+        <div class="modal-overlay">
+          <div class="modal">
+            <div class="modal-header"><span class="modal-title">Manual Correction: ${studentName}</span><button class="modal-close" onclick="closeModal()">×</button></div>
+            <div class="modal-body">
+              <label style="font-size:0.8rem; color:var(--text-muted);">Adjust Status</label>
+              <select id="m-cor-status">
+                <option value="present" ${curStatus==='present'?'selected':''}>Present</option>
+                <option value="late" ${curStatus==='late'?'selected':''}>Late</option>
+                <option value="absent" ${curStatus==='absent'?'selected':''}>Absent</option>
+                <option value="review" ${curStatus==='review'?'selected':''}>Review</option>
+              </select>
+              <label style="font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem;">Correction Reason</label>
+              <input id="m-cor-reason" placeholder="e.g. Verified visually by teacher" required />
+            </div>
+            <div class="modal-footer">
+              <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+              <button onclick="saveCorrection('${eventId}')">Apply Correction</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    async function saveCorrection(eventId) {
+      try {
+        await req(`/api/attendance/events/${eventId}/corrections`, {
+          method: "POST",
+          body: JSON.stringify({
+            corrected_status: document.getElementById("m-cor-status").value,
+            reason: document.getElementById("m-cor-reason").value || "Admin manual override"
+          })
+        });
+        showToast("Attendance status updated");
+        closeModal();
+        loadAttendance();
+      } catch (e) { showToast(e.message); }
+    }
+
+    async function runSimulation() {
+      try {
+        const studentId = document.getElementById("m-sim-stu").value;
+        const sessions = await req("/api/attendance/sessions");
+        const sessionId = sessions[0]?.id || "test-session";
+
+        await req("/api/attendance/simulate", {
+          method: "POST",
+          body: JSON.stringify({
+            session_id: sessionId,
+            student_id: studentId,
+            status: document.getElementById("m-sim-status").value,
+            confidence: 0.94
+          })
+        });
+        showToast("Simulation event injected");
+        closeModal();
+        loadAttendance();
+      } catch (e) { showToast(e.message); }
+    }
+
+    // Start application on page load
+    window.addEventListener("DOMContentLoaded", init);
+  </script>
+</body>
+</html>

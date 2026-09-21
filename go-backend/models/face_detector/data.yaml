@@ -1,6 +1,0 @@
-path: C:/Users/lakshmibhaskar.v/Downloads/archive (1)
-train: images/train
-val: images/val
-
-names:
-  0: human_face
