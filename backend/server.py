@@ -23,6 +23,27 @@ from pydantic import BaseModel, Field
 # CONFIGURATION & CONSTANTS (POSTGRESQL PRIMARY)
 # =====================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Automatically load .env file from backend or repo root if present
+def _load_env_file(filepath: str):
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+        except Exception:
+            pass
+
+_load_env_file(os.path.join(BASE_DIR, ".env"))
+_load_env_file(os.path.join(BASE_DIR, "..", ".env"))
+
 FRONTEND_LOCATIONS = [
     os.path.join(BASE_DIR, "index.html"),
     os.path.join(BASE_DIR, "..", "frontend", "dist", "index.html"),
