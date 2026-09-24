@@ -54,16 +54,19 @@ class AIEngine:
                 print(f"[AI ENGINE] Warning: Failed to load SFace: {e}")
 
         # 3. InsightFace MobileFaceNet (512-d ArcFace)
-        mbf_path = MBF_INT8_PATH if os.path.exists(MBF_INT8_PATH) else MBF_FP32_PATH
-        if os.path.exists(mbf_path):
+        mbf_candidates = [MBF_FP32_PATH, MBF_INT8_PATH]
+        for p in mbf_candidates:
+            if not os.path.exists(p):
+                continue
             try:
                 opts = ort.SessionOptions()
                 opts.intra_op_num_threads = 2
-                self.mbf_session = ort.InferenceSession(mbf_path, sess_options=opts, providers=['CPUExecutionProvider'])
+                self.mbf_session = ort.InferenceSession(p, sess_options=opts, providers=['CPUExecutionProvider'])
                 self.mbf_input_name = self.mbf_session.get_inputs()[0].name
-                print(f"[AI ENGINE] Loaded InsightFace MobileFaceNet (512-d ArcFace): {os.path.basename(mbf_path)}")
+                print(f"[AI ENGINE] Loaded InsightFace MobileFaceNet (512-d ArcFace): {os.path.basename(p)}")
+                break
             except Exception as e:
-                print(f"[AI ENGINE] Warning: Failed to load MobileFaceNet: {e}")
+                print(f"[AI ENGINE] Notice: Could not load {os.path.basename(p)}: {e}")
 
         # 4. MiniFASNet v2 Anti-Spoofing (Liveness)
         if os.path.exists(MINIFAS_PATH):
