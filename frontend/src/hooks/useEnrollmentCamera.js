@@ -1,30 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { evaluateEnrollmentFrame, rememberPoseMetrics, isPoseHistoryStable, validateEnrollmentDetection } from "../utils/enrollmentPose.js";
 import { getFacePoseAnalyzer } from "../services/facePoseAnalyzer.js";
-import { drawFaceCropToCanvas, mapNormalizedBoxToElementStyle } from "../utils/faceCrop.js";
+import { drawFullFrameToCanvas, mapFrameBoxToElementStyle } from "../utils/faceCrop.js";
 
 const POSE_CHECK_INTERVAL_MS = 160;
+const BACKEND_DETECT_INTERVAL_MS = 350;
 const STABLE_HOLD_MS = 520;
-const HISTORY_LIMIT = 4;
-const MIN_STABLE_SAMPLES = 3;
-
-const FRONT_MAX_YAW = 0.1;
-const FRONT_MAX_PITCH = 0.12;
-const SIDE_MIN_YAW = 0.28;
-const SIDE_MAX_PITCH = 0.14;
-const SIDE_MAX_ROLL = 0.24;
-const VERTICAL_MIN_PITCH = 0.22;
-const VERTICAL_MAX_YAW = 0.14;
-const VERTICAL_MAX_ROLL = 0.24;
+const RETRY_DELAY_MS = 2000;
 
 const poses = [
   { key: "front", label: "Front", instruction: "Look straight at the camera" },
-  { key: "left", label: "Left side", instruction: "Turn your face to your left" },
-  { key: "right", label: "Right side", instruction: "Turn to the opposite side" },
+  { key: "left", label: "Left side", instruction: "Turn gently to your left; keep your face inside the camera" },
+  { key: "right", label: "Right side", instruction: "Turn gently to your right; keep your face inside the camera" },
   { key: "look_up", label: "Look up", instruction: "Raise your chin gently" },
   { key: "look_down", label: "Look down", instruction: "Lower your chin from the previous pose" },
 ];
 
-export function useEnrollmentCamera(onCapture) {
+export function useEnrollmentCamera(onCapture, onDetectFrame) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -36,6 +28,15 @@ export function useEnrollmentCamera(onCapture) {
   const metricHistoryRef = useRef([]);
   const historyPoseRef = useRef("");
   const captureInProgressRef = useRef(false);
+  const detectInProgressRef = useRef(false);
+  const lastDetectAtRef = useRef(0);
+  const backendDetectionRef = useRef({ box: null, frameSize: null, count: 0 });
+  const runIdRef = useRef(0);
+  const startingRef = useRef(false);
+  const retryAfterRef = useRef(0);
+  const [holdProgress, setHoldProgress] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [starting, setStarting] = useState(false);
   const autoStartedRef = useRef(false);
   const [poseIndex, setPoseIndex] = useState(0);
   const [captured, setCaptured] = useState({});
@@ -49,6 +50,9 @@ export function useEnrollmentCamera(onCapture) {
     box: null,
     metrics: null,
   });
+  const [backendFaceBox, setBackendFaceBox] = useState(null);
+  const [backendFrameSize, setBackendFrameSize] = useState(null);
+  const [backendFaceCount, setBackendFaceCount] = useState(0);
 
   const complete = useMemo(() => Object.keys(captured).length >= poses.length, [captured]);
   const pose = poses[Math.min(poseIndex, poses.length - 1)];
@@ -61,14 +65,60 @@ export function useEnrollmentCamera(onCapture) {
   }, []);
 
   const stop = useCallback(() => {
+    runIdRef.current += 1;
     clearPoseInterval();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     stableSinceRef.current = 0;
     metricHistoryRef.current = [];
     historyPoseRef.current = "";
+    backendDetectionRef.current = { box: null, frameSize: null, count: 0 };
+    setBackendFaceBox(null);
+    setBackendFaceCount(0);
+    setHoldProgress(0);
     setRunning(false);
   }, [clearPoseInterval]);
+
+  const detectBackendFace = useCallback(async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !onDetectFrame || video.readyState < 2 || detectInProgressRef.current) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastDetectAtRef.current < BACKEND_DETECT_INTERVAL_MS) {
+      return;
+    }
+    lastDetectAtRef.current = now;
+    detectInProgressRef.current = true;
+    const runId = runIdRef.current;
+
+    try {
+      const frameSize = drawFullFrameToCanvas(canvas, video, 640);
+      const response = await onDetectFrame({
+        session_id: "",
+        image_base64: canvas.toDataURL("image/jpeg", 0.82),
+        captured_at: new Date().toISOString(),
+      });
+      if (runId !== runIdRef.current) return;
+      const results = Array.isArray(response?.results) ? response.results : [];
+      const box = results[0]?.box || null;
+      const count = Number(response?.faces_detected || results.length || 0);
+      backendDetectionRef.current = { box, frameSize, count, sampledAt: now };
+      setBackendFaceBox(box);
+      setBackendFrameSize(frameSize);
+      setBackendFaceCount(count);
+    } catch (err) {
+      if (runId !== runIdRef.current) return;
+      backendDetectionRef.current = { box: null, frameSize: null, count: 0, error: `Face check failed: ${err.message}` };
+      setBackendFaceBox(null);
+      setBackendFrameSize(null);
+      setBackendFaceCount(0);
+    } finally {
+      detectInProgressRef.current = false;
+    }
+  }, [onDetectFrame]);
 
   const capture = useCallback(async () => {
     const video = videoRef.current;
@@ -82,21 +132,29 @@ export function useEnrollmentCamera(onCapture) {
       return;
     }
 
+    const detection = validateEnrollmentDetection(backendDetectionRef.current);
+    if (!detection.valid) {
+      setStatus(detection.message);
+      return;
+    }
+    const runId = runIdRef.current;
+    // Freeze pose measurements before the network request; never calibrate from a later frame.
+    const captureMetrics = { ...latestAnalysisRef.current.metrics };
     captureInProgressRef.current = true;
+    setSaving(true);
     setError("");
     setStatus(`Saving ${currentPose.label}`);
     try {
-      const box = latestAnalysisRef.current?.box;
-      if (!box) {
-        throw new Error("Face box is not ready");
+      if (backendDetectionRef.current.count !== 1 || !backendDetectionRef.current.box) {
+        throw new Error("Enrollment needs exactly one backend-detected face");
       }
-      drawFaceCropToCanvas(canvas, video, box, { outputSize: 320, expansion: 1.9 });
+      drawFullFrameToCanvas(canvas, video, 960);
       const imageBase64 = canvas.toDataURL("image/jpeg", 0.84);
       await onCapture({ pose: currentPose.key, imageBase64 });
 
-      if (latestAnalysisRef.current?.metrics) {
-        capturedMetricsRef.current[currentPose.key] = latestAnalysisRef.current.metrics;
-      }
+      if (runId !== runIdRef.current) return;
+      capturedMetricsRef.current[currentPose.key] = captureMetrics;
+      setHoldProgress(0);
       setCaptured((prev) => ({ ...prev, [currentPose.key]: true }));
       stableSinceRef.current = 0;
       metricHistoryRef.current = [];
@@ -109,19 +167,35 @@ export function useEnrollmentCamera(onCapture) {
         setStatus(`${currentPose.label} saved`);
       }
     } catch (err) {
+      if (runId !== runIdRef.current) return;
+      stableSinceRef.current = 0;
+      metricHistoryRef.current = [];
+      setHoldProgress(0);
+      retryAfterRef.current = Date.now() + RETRY_DELAY_MS;
       setError(err.message);
-      setStatus("Capture failed, retrying automatically");
+      setStatus("Could not save this pose. Hold still to retry");
     } finally {
       captureInProgressRef.current = false;
+      setSaving(false);
     }
   }, [captured, onCapture, poseIndex, stop]);
 
   const start = useCallback(async () => {
+    if (startingRef.current || streamRef.current || complete) return;
+    startingRef.current = true;
+    setStarting(true);
+    const runId = ++runIdRef.current;
+    lastDetectAtRef.current = 0;
+    retryAfterRef.current = 0;
     setError("");
     clearPoseInterval();
     stableSinceRef.current = 0;
     metricHistoryRef.current = [];
     historyPoseRef.current = "";
+    backendDetectionRef.current = { box: null, frameSize: null, count: 0 };
+    setBackendFaceBox(null);
+    setBackendFrameSize(null);
+    setBackendFaceCount(0);
     setPoseCheck({
       faceDetected: false,
       valid: false,
@@ -134,27 +208,41 @@ export function useEnrollmentCamera(onCapture) {
         audio: false,
         video: { width: { ideal: 960 }, height: { ideal: 540 }, facingMode: "user" },
       });
+      if (runId !== runIdRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      setRunning(true);
       setStatus("Loading face pose model");
-      poseAnalyzerRef.current = await getFacePoseAnalyzer();
+      const analyzer = await getFacePoseAnalyzer();
+      if (runId !== runIdRef.current) return;
+      poseAnalyzerRef.current = analyzer;
+      setRunning(true);
       poseAnalyzerRef.current.reset?.();
       setStatus(`Hold ${pose.label} pose`);
     } catch (err) {
+      if (runId !== runIdRef.current) return;
       setError(err.message);
-      setStatus("Camera permission failed");
+      setStatus("Could not start enrollment. Please try starting the camera again");
       stop();
+    } finally {
+      startingRef.current = false;
+      setStarting(false);
     }
-  }, [clearPoseInterval, pose.label, stop]);
+  }, [clearPoseInterval, complete, pose.label, stop]);
 
   useEffect(() => {
     if (autoStartedRef.current || complete) return;
-    autoStartedRef.current = true;
-    start();
+    // Defer startup so React StrictMode's setup/cleanup check cannot orphan a camera request.
+    const timer = window.setTimeout(() => {
+      autoStartedRef.current = true;
+      start();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [complete, start]);
 
   useEffect(() => {
@@ -166,12 +254,15 @@ export function useEnrollmentCamera(onCapture) {
       if (!video || !analyzer || video.readyState < 2 || captureInProgressRef.current) {
         return;
       }
+      if (Date.now() < retryAfterRef.current) return;
+      detectBackendFace();
 
       let analysis;
       try {
         analysis = analyzer.analyze(video);
       } catch (err) {
         stableSinceRef.current = 0;
+        setHoldProgress(0);
         setPoseCheck({
           faceDetected: false,
           valid: false,
@@ -182,34 +273,24 @@ export function useEnrollmentCamera(onCapture) {
         setStatus(err.message || "Face pose model is warming up");
         return;
       }
-      if (!analysis.valid) {
-        latestAnalysisRef.current = analysis;
-        setPoseCheck(analysis);
-        stableSinceRef.current = 0;
-        metricHistoryRef.current = [];
-        setStatus(analysis.message);
-        return;
-      }
-
-      const poseValidation = evaluateEnrollmentPose(pose.key, analysis.metrics, capturedMetricsRef.current);
-      const poseState = {
-        ...analysis,
-        valid: poseValidation.valid,
-        message: poseValidation.message,
-      };
+      const poseState = evaluateEnrollmentFrame(
+        pose.key, analysis, backendDetectionRef.current, capturedMetricsRef.current,
+      );
       latestAnalysisRef.current = poseState;
       setPoseCheck(poseState);
 
       if (!poseState.valid) {
         stableSinceRef.current = 0;
+        setHoldProgress(0);
         metricHistoryRef.current = [];
         setStatus(poseState.message);
         return;
       }
 
-      const history = rememberPoseMetrics(metricHistoryRef, historyPoseRef, pose.key, analysis);
+      const history = rememberPoseMetrics(metricHistoryRef, historyPoseRef, pose.key, poseState);
       if (!isPoseHistoryStable(history)) {
         stableSinceRef.current = 0;
+        setHoldProgress(0);
         setStatus(`Correct ${pose.label} pose. Hold steady`);
         return;
       }
@@ -219,8 +300,8 @@ export function useEnrollmentCamera(onCapture) {
         stableSinceRef.current = now;
       }
       const stableFor = now - stableSinceRef.current;
-      const remaining = Math.max(0, STABLE_HOLD_MS - stableFor);
-      setStatus(`Correct ${pose.label} pose. Hold ${Math.ceil(remaining / 1000)}s`);
+      setHoldProgress(Math.min(100, Math.round(stableFor / STABLE_HOLD_MS * 100)));
+      setStatus(pose.key === "front" ? "Hold still. Setting your starting position" : "Hold still. Capturing automatically");
 
       if (stableFor >= STABLE_HOLD_MS) {
         capture();
@@ -231,11 +312,11 @@ export function useEnrollmentCamera(onCapture) {
     checkPose();
     poseIntervalRef.current = window.setInterval(checkPose, POSE_CHECK_INTERVAL_MS);
     return clearPoseInterval;
-  }, [capture, clearPoseInterval, complete, pose.key, pose.label, running]);
+  }, [capture, clearPoseInterval, complete, detectBackendFace, pose.key, pose.label, running]);
 
   useEffect(() => stop, [stop]);
 
-  const faceBoxStyle = poseCheck.box ? mapNormalizedBoxToElementStyle(poseCheck.box, videoRef.current) : undefined;
+  const faceBoxStyle = backendFaceBox ? mapFrameBoxToElementStyle(backendFaceBox, backendFrameSize, videoRef.current) : undefined;
 
   return {
     poses,
@@ -249,153 +330,12 @@ export function useEnrollmentCamera(onCapture) {
     status,
     error,
     poseCheck,
+    backendFaceCount,
+    holdProgress,
+    saving,
+    starting,
     faceBoxStyle,
     start,
     stop,
   };
-}
-
-function evaluateEnrollmentPose(poseKey, metrics, capturedMetrics) {
-  const front = capturedMetrics.front;
-  const yawBase = front?.yawScore ?? 0;
-  const pitchBase = front?.pitchScore ?? 0;
-  const yawDelta = metrics.yawScore - yawBase;
-  const pitchDelta = metrics.pitchScore - pitchBase;
-  const roll = Math.abs(metrics.roll ?? 0);
-
-  if (poseKey === "front") {
-    if (Math.abs(metrics.yawScore) > FRONT_MAX_YAW) {
-      return { valid: false, message: "Center your face and look straight" };
-    }
-    if (Math.abs(metrics.pitchScore) > FRONT_MAX_PITCH) {
-      return { valid: false, message: "Keep your chin level for the front pose" };
-    }
-    return {
-      valid: true,
-      message: "Look straight at the camera",
-    };
-  }
-
-  if (!front) {
-    return { valid: false, message: "Capture the front pose first" };
-  }
-
-  if (poseKey === "left") {
-    if (yawDelta < -0.12) {
-      return { valid: false, message: "That is the right side. Turn your face to your left" };
-    }
-    if (yawDelta < SIDE_MIN_YAW) {
-      return { valid: false, message: "Turn your face more clearly to your left" };
-    }
-    if (Math.abs(pitchDelta) > SIDE_MAX_PITCH) {
-      return { valid: false, message: "Keep your chin level while turning left" };
-    }
-    if (roll > SIDE_MAX_ROLL) {
-      return { valid: false, message: "Keep your head upright while turning left" };
-    }
-    return {
-      valid: true,
-      message: "Left side confirmed. Hold steady",
-    };
-  }
-
-  if (poseKey === "right") {
-    if (yawDelta > 0.12) {
-      return { valid: false, message: "That is the left side. Turn your face to your right" };
-    }
-    if (Math.abs(yawDelta) < SIDE_MIN_YAW) {
-      return { valid: false, message: "Turn your face more clearly to your right" };
-    }
-    if (Math.abs(pitchDelta) > SIDE_MAX_PITCH) {
-      return { valid: false, message: "Keep your chin level while turning right" };
-    }
-    if (roll > SIDE_MAX_ROLL) {
-      return { valid: false, message: "Keep your head upright while turning right" };
-    }
-    return {
-      valid: true,
-      message: "Right side confirmed. Hold steady",
-    };
-  }
-
-  if (poseKey === "look_up") {
-    if (pitchDelta > 0.1) {
-      return { valid: false, message: "That is looking down. Raise your chin for look up" };
-    }
-    if (Math.abs(pitchDelta) < VERTICAL_MIN_PITCH) {
-      return { valid: false, message: "Raise your chin more clearly" };
-    }
-    if (Math.abs(yawDelta) > VERTICAL_MAX_YAW) {
-      return { valid: false, message: "Face forward while looking up" };
-    }
-    if (roll > VERTICAL_MAX_ROLL) {
-      return { valid: false, message: "Keep your head upright while looking up" };
-    }
-    return {
-      valid: true,
-      message: "Look up confirmed. Hold steady",
-    };
-  }
-
-  if (poseKey === "look_down") {
-    if (pitchDelta < -0.1) {
-      return { valid: false, message: "That is looking up. Lower your chin for look down" };
-    }
-    if (pitchDelta < VERTICAL_MIN_PITCH) {
-      return { valid: false, message: "Lower your chin more clearly" };
-    }
-    if (Math.abs(yawDelta) > VERTICAL_MAX_YAW) {
-      return { valid: false, message: "Face forward while looking down" };
-    }
-    if (roll > VERTICAL_MAX_ROLL) {
-      return { valid: false, message: "Keep your head upright while looking down" };
-    }
-    return {
-      valid: true,
-      message: "Look down confirmed. Hold steady",
-    };
-  }
-
-  return { valid: false, message: "Unknown pose" };
-}
-
-function rememberPoseMetrics(historyRef, poseRef, poseKey, analysis) {
-  if (poseRef.current !== poseKey) {
-    poseRef.current = poseKey;
-    historyRef.current = [];
-  }
-
-  const box = analysis.box || {};
-  historyRef.current = [
-    ...historyRef.current,
-    {
-      yaw: analysis.metrics.yawScore,
-      pitch: analysis.metrics.pitchScore,
-      centerX: (box.left || 0) + (box.width || 0) / 2,
-      centerY: (box.top || 0) + (box.height || 0) / 2,
-      width: box.width || 0,
-    },
-  ].slice(-HISTORY_LIMIT);
-  return historyRef.current;
-}
-
-function isPoseHistoryStable(history) {
-  if (history.length < MIN_STABLE_SAMPLES) return false;
-  return (
-    standardDeviation(history.map((item) => item.yaw)) <= 0.075 &&
-    standardDeviation(history.map((item) => item.pitch)) <= 0.085 &&
-    standardDeviation(history.map((item) => item.centerX)) <= 0.045 &&
-    standardDeviation(history.map((item) => item.centerY)) <= 0.05 &&
-    standardDeviation(history.map((item) => item.width)) <= 0.045
-  );
-}
-
-function standardDeviation(values) {
-  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
-  return Math.sqrt(variance);
-}
-
-function clamp01(value) {
-  return Math.min(1, Math.max(0, value));
 }

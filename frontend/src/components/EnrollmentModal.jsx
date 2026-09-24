@@ -15,12 +15,12 @@ export function EnrollmentModal({ type, entity, onClose, onDone }) {
         type === "teacher" ? await platformApi.enrollTeacher(payload) : await platformApi.enrollStudent(payload);
       setMessages((prev) => [
         ...prev,
-        `${response.pose}: ${response.model_mode}${response.is_demo ? " (demo)" : ""}, ${response.variant_count || 0} scale variants`,
+        `${response.pose.replaceAll("_", " ")}: saved`,
       ]);
     },
     [entity.id, type],
   );
-  const camera = useEnrollmentCamera(onCapture);
+  const camera = useEnrollmentCamera(onCapture, platformApi.detectEnrollmentFrame);
 
   useEffect(() => {
     if (!camera.complete || completionHandledRef.current) return;
@@ -52,27 +52,25 @@ export function EnrollmentModal({ type, entity, onClose, onDone }) {
           )}
           {!camera.running && <div className="video-placeholder">Enrollment camera</div>}
           <div className="camera-instruction">
-            <strong>{camera.pose.label}</strong>
-            <span>{camera.poseCheck.message || camera.pose.instruction}</span>
+            <strong>{camera.complete ? "Enrollment complete" : camera.pose.label}</strong>
+            <span>{camera.status}</span>
           </div>
         </div>
         <div className="pose-list">
+          <strong aria-live="polite">{Object.keys(camera.captured).length} of {camera.poses.length} poses saved</strong>
           {camera.poses.map((pose) => (
-            <div className={camera.captured[pose.key] ? "pose done" : "pose"} key={pose.key}>
+            <div className={camera.captured[pose.key] ? "pose done" : pose.key === camera.pose.key ? "pose active" : "pose"} key={pose.key}>
               <strong>{pose.label}</strong>
               <span>{camera.captured[pose.key] ? "Captured" : pose.instruction}</span>
             </div>
           ))}
-          <p>{camera.status}</p>
-          {camera.poseCheck.metrics && (
-            <small className={camera.poseCheck.valid ? "pose-signal valid" : "pose-signal"}>
-              Pose signal: yaw {camera.poseCheck.metrics.yawScore.toFixed(2)}, pitch{" "}
-              {camera.poseCheck.metrics.pitchScore.toFixed(2)}
-            </small>
+          <p role="status">{camera.status}</p>
+          {camera.running && !camera.complete && (
+            <progress className="enrollment-progress" aria-label="Hold steady to capture this pose" max="100" value={camera.saving ? 100 : camera.holdProgress} />
           )}
           {camera.error && <div className="error-line">{camera.error}</div>}
           <div className="actions">
-            <button type="button" onClick={camera.start} disabled={camera.running || camera.complete}>Start camera</button>
+            <button type="button" onClick={camera.start} disabled={camera.running || camera.starting || camera.complete}>{camera.starting ? "Opening camera..." : "Start camera"}</button>
             <button
               type="button"
               onClick={() => {

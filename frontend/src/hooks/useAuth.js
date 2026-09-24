@@ -35,16 +35,36 @@ export function useAuth() {
   }, [refresh]);
 
   const setup = async (payload) => {
-    const response = await authApi.setup(payload);
-    setToken(response.token);
-    setSession(response);
-    setSetupComplete(true);
+    setError("");
+    try {
+      const response = await authApi.setup(payload);
+      setToken(response.token);
+      setSession(response);
+      setSetupComplete(true);
+    } catch (err) {
+      if (err.message.includes("Admin already registered")) {
+        setSetupComplete(true);
+        setError("Admin is already set up. Please sign in.");
+        return;
+      }
+      setError(err.message);
+    }
   };
 
   const login = async (payload) => {
-    const response = await authApi.login(payload);
-    setToken(response.token);
-    setSession(response);
+    setError("");
+    try {
+      const response = await authApi.login(payload);
+      setToken(response.token);
+      setSession(response);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const showLogin = () => {
+    setError("");
+    setSetupComplete(true);
   };
 
   const logout = () => {
@@ -59,6 +79,7 @@ export function useAuth() {
     error,
     setup,
     login,
+    showLogin,
     logout,
     refresh,
   };

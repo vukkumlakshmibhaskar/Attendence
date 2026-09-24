@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SAMPLE_INTERVAL_MS } from "../config/env.js";
-import { getFacePoseAnalyzer } from "../services/facePoseAnalyzer.js";
-import { drawFaceCropToCanvas, drawFullFrameToCanvas } from "../utils/faceCrop.js";
+import { drawFullFrameToCanvas } from "../utils/faceCrop.js";
 
 export function useFrameSampler({
   sessionId,
@@ -15,7 +14,6 @@ export function useFrameSampler({
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
-  const poseAnalyzerRef = useRef(null);
   const inFlightRef = useRef(false);
   const cacheSizeRef = useRef(0);
   const [isRunning, setIsRunning] = useState(false);
@@ -31,7 +29,6 @@ export function useFrameSampler({
     streamRef.current = null;
     setIsRunning(false);
     setStatus("Camera stopped");
-    poseAnalyzerRef.current?.reset?.();
     if (clearOnStop) {
       setLatest(null);
       setLatestFrameSize(null);
@@ -63,9 +60,6 @@ export function useFrameSampler({
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
-      setStatus("Loading face detector");
-      poseAnalyzerRef.current = await getFacePoseAnalyzer();
-      poseAnalyzerRef.current.reset?.();
       setIsRunning(true);
       setStatus(`Sampling one frame every ${Math.round(intervalMs / 100) / 10} seconds`);
     } catch (err) {
@@ -81,37 +75,15 @@ export function useFrameSampler({
       return;
     }
 
-    let analysis = null;
-    try {
-      poseAnalyzerRef.current?.reset?.();
-      analysis = poseAnalyzerRef.current?.analyze(video) || null;
-    } catch (err) {
-      setStatus("Face detector is warming up");
-      return;
-    }
-
-    if (!analysis?.faceDetected || !analysis.box) {
-      setLatest({
-        faces_detected: 0,
-        faces_recognized: 0,
-        unknown_count: 0,
-        cache_size: cacheSizeRef.current,
-        results: [],
-      });
-      setLatestFaceBox(null);
-      setStatus(analysis?.message || "No face detected");
-      return;
-    }
-
     let frameSize;
     try {
-      frameSize = drawFaceCropToCanvas(canvas, video, analysis.box, { outputSize: 320, expansion: 1.9 });
-      setLatestFaceBox(analysis.box);
-    } catch (err) {
       frameSize = drawFullFrameToCanvas(canvas, video, 640);
       setLatestFaceBox(null);
+    } catch (err) {
+      setStatus("Camera frame is not ready");
+      return;
     }
-    setLatestFrameSize({ width: frameSize.width, height: frameSize.height });
+    setLatestFrameSize(frameSize);
     const imageBase64 = canvas.toDataURL("image/jpeg", 0.82);
 
     inFlightRef.current = true;

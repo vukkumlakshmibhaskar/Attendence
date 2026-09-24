@@ -3,7 +3,7 @@ import { useCallback } from "react";
 
 import { RECOGNITION_INTERVAL_MS } from "../config/env.js";
 import { useFrameSampler } from "../hooks/useFrameSampler.js";
-import { mapNormalizedBoxToElementStyle } from "../utils/faceCrop.js";
+import { mapFrameBoxToElementStyle, mapNormalizedBoxToElementStyle } from "../utils/faceCrop.js";
 
 export function LiveRecognitionPanel({ onIdentifyFrame }) {
   const onFrame = useCallback((payload) => onIdentifyFrame({ ...payload, session_id: "" }), [onIdentifyFrame]);
@@ -17,12 +17,17 @@ export function LiveRecognitionPanel({ onIdentifyFrame }) {
   const results = Array.isArray(latest?.results) ? latest.results : [];
   const currentRecognized = Number(latest?.faces_recognized || 0) > 0;
   const matchedFace = currentRecognized ? results.find((result) => result.student_id || result.teacher_id) : null;
-  const visibleBox = sampler.latestFaceBox || matchedFace?.box || results[0]?.box || null;
-  const liveBoxStyle = sampler.latestFaceBox
-    ? mapNormalizedBoxToElementStyle(sampler.latestFaceBox, sampler.videoRef.current)
-    : visibleBox
-    ? mapFrameBoxToElementStyle(visibleBox, sampler.latestFrameSize, sampler.videoRef.current)
-    : undefined;
+  const backendBoxes = results
+    .map((result, index) => ({
+      key: `${result.student_id || result.teacher_id || "unknown"}-${index}`,
+      recognized: Boolean(result.student_id || result.teacher_id),
+      style: result.box ? mapFrameBoxToElementStyle(result.box, sampler.latestFrameSize, sampler.videoRef.current) : undefined,
+    }))
+    .filter((box) => box.style);
+  const fallbackBoxStyle =
+    backendBoxes.length === 0 && sampler.latestFaceBox
+      ? mapNormalizedBoxToElementStyle(sampler.latestFaceBox, sampler.videoRef.current)
+      : undefined;
   const currentMessage = statusMessage(latest, sampler.samplesSent);
 
   return (
@@ -44,12 +49,14 @@ export function LiveRecognitionPanel({ onIdentifyFrame }) {
               <span>Open camera and show an enrolled face</span>
             </div>
           )}
-          {liveBoxStyle && (
+          {backendBoxes.map((box) => (
             <div
-              className={matchedFace ? "face-box live-box valid" : "face-box live-box unknown"}
-              style={liveBoxStyle}
+              className={box.recognized ? "face-box live-box valid" : "face-box live-box unknown"}
+              key={box.key}
+              style={box.style}
             />
-          )}
+          ))}
+          {fallbackBoxStyle && <div className="face-box live-box unknown" style={fallbackBoxStyle} />}
           <div className="camera-instruction">
             <strong>{sampler.status}</strong>
             <span>{currentMessage}</span>
@@ -124,48 +131,3 @@ function statusMessage(latest, samplesSent) {
   return "Current frame matched an enrolled face";
 }
 
-function mapFrameBoxToElementStyle(box, frameSize, video) {
-  const element = video?.parentElement;
-  const rect = element?.getBoundingClientRect();
-  const frameWidth = frameSize?.width || video?.videoWidth || 0;
-  const frameHeight = frameSize?.height || video?.videoHeight || 0;
-  if (!rect?.width || !rect?.height || !frameWidth || !frameHeight) {
-    return {
-      left: `${(box.x / Math.max(frameWidth, 1)) * 100}%`,
-      top: `${(box.y / Math.max(frameHeight, 1)) * 100}%`,
-      width: `${(box.width / Math.max(frameWidth, 1)) * 100}%`,
-      height: `${(box.height / Math.max(frameHeight, 1)) * 100}%`,
-    };
-  }
-
-  const sourceAspect = frameWidth / frameHeight;
-  const elementAspect = rect.width / rect.height;
-  let renderedWidth = rect.width;
-  let renderedHeight = rect.height;
-  let offsetX = 0;
-  let offsetY = 0;
-
-  if (sourceAspect > elementAspect) {
-    renderedHeight = rect.width / sourceAspect;
-    offsetY = (rect.height - renderedHeight) / 2;
-  } else {
-    renderedWidth = rect.height * sourceAspect;
-    offsetX = (rect.width - renderedWidth) / 2;
-  }
-
-  const left = clamp01((offsetX + (box.x / frameWidth) * renderedWidth) / rect.width);
-  const top = clamp01((offsetY + (box.y / frameHeight) * renderedHeight) / rect.height);
-  const right = clamp01((offsetX + ((box.x + box.width) / frameWidth) * renderedWidth) / rect.width);
-  const bottom = clamp01((offsetY + ((box.y + box.height) / frameHeight) * renderedHeight) / rect.height);
-
-  return {
-    left: `${left * 100}%`,
-    top: `${top * 100}%`,
-    width: `${Math.max(0.02, right - left) * 100}%`,
-    height: `${Math.max(0.02, bottom - top) * 100}%`,
-  };
-}
-
-function clamp01(value) {
-  return Math.min(1, Math.max(0, value));
-}

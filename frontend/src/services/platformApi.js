@@ -29,6 +29,7 @@ export const platformApi = {
   cameras: () => apiRequest("/api/cameras"),
   createCamera: (payload) => postJSON("/api/cameras", payload),
 
+  detectEnrollmentFrame: (payload) => postJSON("/api/enrollments/detect", payload),
   enrollStudent: (payload) => postJSON("/api/enrollments/students", payload),
   deleteStudentEnrollment: (id) => deleteJSON(`/api/enrollments/students/${id}`),
   enrollTeacher: (payload) => postJSON("/api/enrollments/teachers", payload),

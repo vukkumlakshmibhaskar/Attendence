@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-export function AuthPage({ setupComplete, onSetup, onLogin, error }) {
+export function AuthPage({ setupComplete, onSetup, onLogin, onShowLogin, error }) {
   const isSetup = !setupComplete;
   const [form, setForm] = useState({
     organization_name: "",
@@ -36,6 +36,11 @@ export function AuthPage({ setupComplete, onSetup, onLogin, error }) {
         <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} />
         {error && <p className="error-line">{error}</p>}
         <button type="submit">{isSetup ? "Create admin account" : "Login"}</button>
+        {isSetup && (
+          <button type="button" className="link-button" onClick={onShowLogin}>
+            Already have an admin account? Sign in
+          </button>
+        )}
       </form>
     </main>
   );

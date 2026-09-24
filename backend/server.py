@@ -7,6 +7,7 @@ import os
 import secrets
 import time
 import uuid
+from threading import Lock
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -14,6 +15,7 @@ import cv2
 import numpy as np
 import psycopg2
 import psycopg2.extras
+from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -23,6 +25,10 @@ from pydantic import BaseModel, Field
 # CONFIGURATION & CONSTANTS (POSTGRESQL PRIMARY)
 # =====================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+FACE_VERIFIER_MODEL_PATH = os.path.join(BASE_DIR, os.environ.get("FACE_VERIFIER_MODEL_PATH", "face_verifier_pins.json"))
+FACE_MODEL_ID = "sface_deep_verifier_128d"
+face_model_lock = Lock()
 FRONTEND_LOCATIONS = [
     os.path.join(BASE_DIR, "index.html"),
     os.path.join(BASE_DIR, "..", "frontend", "dist", "index.html"),
@@ -235,7 +241,6 @@ def init_db():
             """)
         conn.commit()
 
-init_db()
 
 # =====================================================================
 # SECURITY & AUTH HELPERS
@@ -343,11 +348,17 @@ class FaceCache:
                         data = row["embedding_json"]
                         if isinstance(data, str):
                             data = json.loads(data)
-                        vec = data.get("embedding", [])
-                        if len(vec) in (128, 512):
+                        descriptor = data.get("descriptor")
+                        if descriptor == "arcface_512d":
+                            vec = data.get("embedding_128", [])
+                        elif descriptor == FACE_MODEL_ID:
+                            vec = data.get("embedding", [])
+                        else:
+                            continue  # Grid descriptors are not SFace embeddings.
+                        if len(vec) == 128:
                             loaded.append(EnrolledVector(row["student_id"], "student", row["full_name"], row["external_id"], vec, row["pose"]))
-                        for variant in data.get("variants", []):
-                            if len(variant) in (128, 512):
+                        for variant in (data.get("variants", []) if descriptor == FACE_MODEL_ID else []):
+                            if len(variant) == 128:
                                 loaded.append(EnrolledVector(row["student_id"], "student", row["full_name"], row["external_id"], variant, row["pose"]))
                     except Exception:
                         pass
@@ -364,11 +375,17 @@ class FaceCache:
                         data = row["embedding_json"]
                         if isinstance(data, str):
                             data = json.loads(data)
-                        vec = data.get("embedding", [])
-                        if len(vec) in (128, 512):
+                        descriptor = data.get("descriptor")
+                        if descriptor == "arcface_512d":
+                            vec = data.get("embedding_128", [])
+                        elif descriptor == FACE_MODEL_ID:
+                            vec = data.get("embedding", [])
+                        else:
+                            continue  # Grid descriptors are not SFace embeddings.
+                        if len(vec) == 128:
                             loaded.append(EnrolledVector(row["teacher_id"], "teacher", row["full_name"], row["external_id"], vec, row["pose"]))
-                        for variant in data.get("variants", []):
-                            if len(variant) in (128, 512):
+                        for variant in (data.get("variants", []) if descriptor == FACE_MODEL_ID else []):
+                            if len(variant) == 128:
                                 loaded.append(EnrolledVector(row["teacher_id"], "teacher", row["full_name"], row["external_id"], variant, row["pose"]))
                     except Exception:
                         pass
@@ -449,45 +466,37 @@ def decode_base64_image(image_base64: str) -> np.ndarray:
     return img
 
 def detect_faces(img: np.ndarray) -> List[FaceObservation]:
+    if yunet_detector is None or sface_recognizer is None:
+        raise RuntimeError("YuNet and SFace are required for the trained verifier")
     observations = []
-    try:
-        results = ai_engine.detect_and_extract(img)
-        if results:
-            for r in results:
-                main_desc = r["embedding_512"] if len(r["embedding_512"]) == 512 else r["embedding_128"]
-                obs = FaceObservation(
-                    descriptor=main_desc,
-                    box=r["box"],
-                    descriptor_512=r["embedding_512"],
-                    is_live=r["is_live"],
-                    liveness_confidence=r["liveness_confidence"],
-                    is_masked=r["is_masked"],
-                    mask_confidence=r["mask_confidence"]
-                )
-                observations.append(obs)
+    # OpenCV detector input size and inference state are shared across requests.
+    with face_model_lock:
+        h, w = img.shape[:2]
+        yunet_detector.setInputSize((w, h))
+        _, faces = yunet_detector.detect(img)
+        if faces is None:
             return observations
-    except Exception as e:
-        print(f"[AI ENGINE] Error in detect_faces: {e}")
-
-    # Fallback to Haar Cascade
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(40, 40))
-
-    if len(faces) == 0:
-        h, w = gray.shape
-        crop_size = min(h, w)
-        cy, cx = h // 2, w // 2
-        y0 = max(0, cy - crop_size // 2)
-        x0 = max(0, cx - crop_size // 2)
-        roi = gray[y0:y0+crop_size, x0:x0+crop_size]
-        desc = extract_hybrid_grid_vector(roi)
-        observations.append(FaceObservation(desc, {"x": x0, "y": y0, "width": crop_size, "height": crop_size}))
-    else:
-        for (x, y, w, h) in faces:
-            roi = gray[y:y+h, x:x+w]
-            desc = extract_hybrid_grid_vector(roi)
-            observations.append(FaceObservation(desc, {"x": int(x), "y": int(y), "width": int(w), "height": int(h)}))
+        for face in faces:
+            aligned = sface_recognizer.alignCrop(img, face)
+            feat = sface_recognizer.feature(aligned).flatten().astype(np.float64)
+            norm = np.linalg.norm(feat)
+            if norm <= 1e-9:
+                continue
+            feat /= norm
+            x, y = max(0, int(face[0])), max(0, int(face[1]))
+            right, bottom = min(w, int(face[0] + face[2])), min(h, int(face[1] + face[3]))
+            if right > x and bottom > y:
+                box = {"x": x, "y": y, "width": right - x, "height": bottom - y}
+                observations.append(FaceObservation(feat.tolist(), box))
     return observations
+
+
+def enrollment_vectors(img: np.ndarray) -> List[List[float]]:
+    faces = detect_faces(img)
+    if len(faces) != 1:
+        raise HTTPException(status_code=400, detail="Enrollment requires exactly one detectable face")
+    return [faces[0].descriptor]
+
 
 def euclidean_distance(v1: List[float], v2: List[float]) -> float:
     return float(np.linalg.norm(np.array(v1) - np.array(v2)))
@@ -495,62 +504,34 @@ def euclidean_distance(v1: List[float], v2: List[float]) -> float:
 VERIFIER_MODEL = None
 def load_verifier_model():
     global VERIFIER_MODEL
-    for p in [os.path.join(BASE_DIR, "face_verifier_pins.json"), os.path.join(BASE_DIR, "face_verifier.json")]:
-        if os.path.exists(p):
-            try:
-                with open(p, "r") as f:
-                    VERIFIER_MODEL = json.load(f)
-                    acc = VERIFIER_MODEL.get("test_accuracy", "N/A")
-                    print(f"[VERIFIER] Loaded trained model from {os.path.basename(p)} (accuracy: {acc}%)")
-                    break
-            except Exception:
-                pass
+    with open(FACE_VERIFIER_MODEL_PATH, "r", encoding="utf-8") as f:
+        model = json.load(f)
+    weights = np.asarray(model.get("weights", []), dtype=np.float64)
+    if (model.get("model_type") != FACE_MODEL_ID or model.get("input_features") != 130
+            or weights.shape != (130,) or not np.all(np.isfinite(weights))
+            or not np.isfinite(float(model.get("bias", float("nan"))))
+            or not -1 <= float(model.get("optimal_threshold", 2)) <= 1):
+        raise ValueError("Invalid SFace verifier: expected 130 finite weights, bias and cosine threshold")
+    if yunet_detector is None or sface_recognizer is None:
+        raise RuntimeError("Cannot load trained verifier without YuNet and SFace ONNX models")
+    VERIFIER_MODEL = model
+    print(f"[VERIFIER] Loaded {os.path.basename(FACE_VERIFIER_MODEL_PATH)} "
+          f"(test accuracy: {model.get('test_accuracy')}%, trained: {model.get('trained_at')})")
 
-def score_match(v1: List[float], v2: List[float], is_masked: bool = False) -> Tuple[float, float]:
-    # ArcFace 512-d comparison
-    if len(v1) == 512 and len(v2) == 512:
-        dist, conf, _ = ai_engine.compare_embeddings(v1, v2, is_masked=is_masked)
-        return dist, conf
 
-    # SFace / Legacy 128-d comparison
-    arr1 = np.array(v1, dtype=np.float64)
-    arr2 = np.array(v2, dtype=np.float64)
+def score_match(v1: List[float], v2: List[float]) -> Tuple[float, float]:
+    if VERIFIER_MODEL is None:
+        raise RuntimeError("Trained verifier has not been loaded")
+    arr1, arr2 = np.asarray(v1, dtype=np.float64), np.asarray(v2, dtype=np.float64)
+    if arr1.shape != (128,) or arr2.shape != (128,):
+        raise ValueError("The verifier requires 128-dimensional SFace embeddings")
     dist = float(np.linalg.norm(arr1 - arr2))
+    # Match the exact feature order and sigmoid used by train_face_model.py.
+    features = np.concatenate([[float(np.dot(arr1, arr2)), dist], np.abs(arr1 - arr2)])
+    linear = float(np.dot(features, VERIFIER_MODEL["weights"]) + VERIFIER_MODEL["bias"])
+    probability = float(1.0 / (1.0 + np.exp(-np.clip(linear, -25.0, 25.0))))
+    return dist, probability
 
-    norm1 = np.linalg.norm(arr1)
-    norm2 = np.linalg.norm(arr2)
-    cos_sim = float(np.dot(arr1, arr2) / (norm1 * norm2 + 1e-9)) if norm1 > 1e-9 and norm2 > 1e-9 else 0.0
-
-    # Baseline distance confidence
-    conf = max(0.0, min(1.0, 1.0 - (dist / MATCH_THRESHOLD)))
-
-    if VERIFIER_MODEL:
-        th = float(VERIFIER_MODEL.get("optimal_threshold", 0.363))
-        # Logistic regression verification probability
-        if "weights" in VERIFIER_MODEL:
-            try:
-                weights = np.array(VERIFIER_MODEL["weights"], dtype=np.float64)
-                bias = float(VERIFIER_MODEL.get("bias", 0.0))
-                diff = np.abs(arr1 - arr2)
-                # Form [cos_sim, dist, diff]
-                feat = np.concatenate([[cos_sim, dist], diff])
-                if len(feat) == len(weights):
-                    linear = np.dot(feat, weights) + bias
-                    prob = float(1.0 / (1.0 + np.exp(-np.clip(linear, -25.0, 25.0))))
-                    conf = max(conf, prob)
-                elif len(diff) + 1 == len(weights):
-                    feat_legacy = np.append(diff, [dist])
-                    linear = np.dot(feat_legacy, weights) + bias
-                    prob = float(1.0 / (1.0 + np.exp(-np.clip(linear, -25.0, 25.0))))
-                    conf = max(conf, prob)
-            except Exception:
-                pass
-        # High confidence boost when deep cosine similarity exceeds optimal threshold
-        if cos_sim >= th:
-            boosted = 0.70 + 0.30 * min(1.0, (cos_sim - th) / (1.0 - th + 1e-9))
-            conf = max(conf, boosted)
-
-    return dist, conf
 
 def analyze_cognitive(face_crop: np.ndarray) -> Dict[str, Any]:
     t0 = time.perf_counter()
@@ -598,6 +579,7 @@ def analyze_cognitive(face_crop: np.ndarray) -> Dict[str, Any]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     load_verifier_model()
+    init_db()
     face_cache.reload()
     yield
 
@@ -614,9 +596,20 @@ app.add_middleware(
 # --- HEALTH & STATIC HOSTING ---
 @app.get("/health")
 def health():
+    with get_db() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1")
     return {
         "status": "ok",
         "database": "postgresql",
+        "face_detector": "yunet",
+        "face_recognizer": "sface",
+        "verifier": {"file": os.path.basename(FACE_VERIFIER_MODEL_PATH),
+                     "model_type": VERIFIER_MODEL["model_type"],
+                     "trained_at": VERIFIER_MODEL.get("trained_at"),
+                     "test_accuracy": VERIFIER_MODEL.get("test_accuracy"),
+                     "cosine_threshold": VERIFIER_MODEL["optimal_threshold"],
+                     "probability_threshold": 0.5},
         "cache_size": face_cache.size(),
         "time": datetime.datetime.utcnow().isoformat()
     }
@@ -1126,26 +1119,13 @@ def enroll_student(payload: EnrollmentPayload, user: dict = Depends(require_admi
         raise HTTPException(status_code=400, detail="Invalid pose name")
 
     img = decode_base64_image(payload.image_base64)
-    detections = ai_engine.detect_and_extract(img)
-    if detections:
-        best_det = detections[0]
-        main_emb = best_det["embedding_512"]
-        legacy_emb = best_det["embedding_128"]
-        all_variants = [main_emb]
-    else:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        variants = generate_descriptor_variants(gray)
-        main_emb = variants[0]
-        legacy_emb = variants[0]
-        all_variants = variants
-
+    variants = enrollment_vectors(img)
     img_sha256 = hashlib.sha256(payload.image_base64.encode()).hexdigest()
 
     emb_json = json.dumps({
-        "descriptor": "arcface_512d",
-        "embedding": main_emb,
-        "embedding_128": legacy_emb,
-        "variants": all_variants
+        "descriptor": FACE_MODEL_ID,
+        "embedding": variants[0],
+        "variants": variants[1:]
     })
 
     with get_db() as conn:
@@ -1153,23 +1133,25 @@ def enroll_student(payload: EnrollmentPayload, user: dict = Depends(require_admi
             eid = str(uuid.uuid4())
             now = datetime.datetime.utcnow().isoformat()
             cursor.execute("""
-                INSERT INTO face_enrollments (id, organization_id, student_id, pose, image_sha256, embedding_json, quality_score, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, 0.95, %s)
+                INSERT INTO face_enrollments (id, organization_id, student_id, pose, image_sha256, embedding_json, model_path, model_mode, quality_score, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0.90, %s)
                 ON CONFLICT (student_id, pose) DO UPDATE 
                 SET image_sha256 = EXCLUDED.image_sha256, 
-                    embedding_json = EXCLUDED.embedding_json, 
+                    embedding_json = EXCLUDED.embedding_json,
+                    model_path = EXCLUDED.model_path,
+                    model_mode = EXCLUDED.model_mode,
                     quality_score = EXCLUDED.quality_score;
-            """, (eid, user["organization_id"], payload.entity_id, payload.pose, img_sha256, emb_json, now))
+            """, (eid, user["organization_id"], payload.entity_id, payload.pose, img_sha256, emb_json, SFACE_PATH, "sface_onnx_cpu", now))
             conn.commit()
 
     face_cache.reload()
     return {
         "entity_id": payload.entity_id,
         "pose": payload.pose,
-        "model_mode": "insightface_arcface_512d",
+        "model_mode": "sface_onnx_cpu",
         "is_demo": False,
-        "variant_count": len(all_variants),
-        "quality_score": 0.95
+        "variant_count": len(variants),
+        "quality_score": 0.90
     }
 
 @app.post("/api/enrollments/teachers")
@@ -1179,26 +1161,13 @@ def enroll_teacher(payload: EnrollmentPayload, user: dict = Depends(require_admi
         raise HTTPException(status_code=400, detail="Invalid pose name")
 
     img = decode_base64_image(payload.image_base64)
-    detections = ai_engine.detect_and_extract(img)
-    if detections:
-        best_det = detections[0]
-        main_emb = best_det["embedding_512"]
-        legacy_emb = best_det["embedding_128"]
-        all_variants = [main_emb]
-    else:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        variants = generate_descriptor_variants(gray)
-        main_emb = variants[0]
-        legacy_emb = variants[0]
-        all_variants = variants
-
+    variants = enrollment_vectors(img)
     img_sha256 = hashlib.sha256(payload.image_base64.encode()).hexdigest()
 
     emb_json = json.dumps({
-        "descriptor": "arcface_512d",
-        "embedding": main_emb,
-        "embedding_128": legacy_emb,
-        "variants": all_variants
+        "descriptor": FACE_MODEL_ID,
+        "embedding": variants[0],
+        "variants": variants[1:]
     })
 
     with get_db() as conn:
@@ -1206,23 +1175,25 @@ def enroll_teacher(payload: EnrollmentPayload, user: dict = Depends(require_admi
             eid = str(uuid.uuid4())
             now = datetime.datetime.utcnow().isoformat()
             cursor.execute("""
-                INSERT INTO teacher_face_enrollments (id, organization_id, teacher_id, pose, image_sha256, embedding_json, quality_score, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, 0.95, %s)
+                INSERT INTO teacher_face_enrollments (id, organization_id, teacher_id, pose, image_sha256, embedding_json, model_path, model_mode, quality_score, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 0.90, %s)
                 ON CONFLICT (teacher_id, pose) DO UPDATE 
                 SET image_sha256 = EXCLUDED.image_sha256, 
-                    embedding_json = EXCLUDED.embedding_json, 
+                    embedding_json = EXCLUDED.embedding_json,
+                    model_path = EXCLUDED.model_path,
+                    model_mode = EXCLUDED.model_mode,
                     quality_score = EXCLUDED.quality_score;
-            """, (eid, user["organization_id"], payload.entity_id, payload.pose, img_sha256, emb_json, now))
+            """, (eid, user["organization_id"], payload.entity_id, payload.pose, img_sha256, emb_json, SFACE_PATH, "sface_onnx_cpu", now))
             conn.commit()
 
     face_cache.reload()
     return {
         "entity_id": payload.entity_id,
         "pose": payload.pose,
-        "model_mode": "insightface_arcface_512d",
+        "model_mode": "sface_onnx_cpu",
         "is_demo": False,
-        "variant_count": len(all_variants),
-        "quality_score": 0.95
+        "variant_count": len(variants),
+        "quality_score": 0.90
     }
 
 @app.post("/api/face-cache/reload")
@@ -1234,6 +1205,24 @@ def reload_cache():
 class FramePayload(BaseModel):
     session_id: Optional[str] = ""
     image_base64: str
+
+@app.post("/api/enrollments/detect")
+def detect_enrollment_frame(payload: FramePayload, user: dict = Depends(require_admin)):
+    """Fast enrollment preview: detect boxes without recognition or extra analysis."""
+    img = decode_base64_image(payload.image_base64)
+    h, w = img.shape[:2]
+    with face_model_lock:
+        yunet_detector.setInputSize((w, h))
+        _, faces = yunet_detector.detect(img)
+    boxes = []
+    if faces is not None:
+        for face in faces:
+            x, y = max(0, int(face[0])), max(0, int(face[1]))
+            right, bottom = min(w, int(face[0] + face[2])), min(h, int(face[1] + face[3]))
+            if right > x and bottom > y:
+                boxes.append({"box": {"x": x, "y": y, "width": right - x, "height": bottom - y}})
+    return {"faces_detected": len(boxes), "results": boxes}
+
 
 @app.post("/api/recognition/identify")
 def identify_frame(payload: FramePayload, user: dict = Depends(get_current_user)):
@@ -1249,9 +1238,8 @@ def identify_frame(payload: FramePayload, user: dict = Depends(get_current_user)
         best_conf = 0.0
 
         for candidate in face_cache.vectors:
-            query_vec = obs.descriptor_512 if len(candidate.vector) == 512 and obs.descriptor_512 else obs.descriptor
-            dist, conf = score_match(query_vec, candidate.vector, is_masked=obs.is_masked)
-            if dist < min_dist:
+            dist, conf = score_match(obs.descriptor, candidate.vector)
+            if conf > best_conf:
                 min_dist = dist
                 best_match = candidate
                 best_conf = conf
@@ -1259,11 +1247,10 @@ def identify_frame(payload: FramePayload, user: dict = Depends(get_current_user)
         bx, by, bw, bh = obs.box["x"], obs.box["y"], obs.box["width"], obs.box["height"]
         face_crop = img[by:by+bh, bx:bx+bw]
         cognitive_res = analyze_cognitive(face_crop) if face_crop.size > 0 else {}
-        cognitive_res["liveness"] = {"is_live": obs.is_live, "confidence": obs.liveness_confidence}
-        cognitive_res["mask"] = {"is_masked": obs.is_masked, "confidence": obs.mask_confidence}
 
-        is_match = bool(best_match and (best_conf >= 0.50 or (len(best_match.vector) == 128 and min_dist <= MATCH_THRESHOLD)))
-        if is_match:
+
+
+        if best_match and best_conf >= 0.50:
             faces_recognized += 1
             results.append({
                 "person_type": best_match.person_type,
@@ -1320,9 +1307,8 @@ def process_frame(payload: FramePayload, user: dict = Depends(get_current_user))
                 for candidate in face_cache.vectors:
                     if candidate.person_type != "student":
                         continue
-                    query_vec = obs.descriptor_512 if len(candidate.vector) == 512 and obs.descriptor_512 else obs.descriptor
-                    dist, conf = score_match(query_vec, candidate.vector, is_masked=obs.is_masked)
-                    if dist < min_dist:
+                    dist, conf = score_match(obs.descriptor, candidate.vector)
+                    if conf > best_conf:
                         min_dist = dist
                         best_match = candidate
                         best_conf = conf
@@ -1330,14 +1316,13 @@ def process_frame(payload: FramePayload, user: dict = Depends(get_current_user))
                 bx, by, bw, bh = obs.box["x"], obs.box["y"], obs.box["width"], obs.box["height"]
                 face_crop = img[by:by+bh, bx:bx+bw]
                 cognitive_res = analyze_cognitive(face_crop) if face_crop.size > 0 else {}
-                cognitive_res["liveness"] = {"is_live": obs.is_live, "confidence": obs.liveness_confidence}
-                cognitive_res["mask"] = {"is_masked": obs.is_masked, "confidence": obs.mask_confidence}
 
-                is_match = bool(best_match and (best_conf >= 0.50 or (len(best_match.vector) == 128 and min_dist <= MATCH_THRESHOLD)))
-                if is_match:
+
+
+                if best_match and best_conf >= 0.50:
                     faces_recognized += 1
                     confidence = best_conf
-                    is_live = obs.is_live
+                    is_live = cognitive_res.get("liveness", {}).get("is_live", False)
                     att_status = "present" if is_live else "blocked_liveness"
 
                     if is_live:
@@ -1388,4 +1373,4 @@ if __name__ == "__main__":
     print(f"[POSTGRESQL]  postgresql://{PG_USER}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}")
     print(f"[CACHE]       {face_cache.size()} face vectors in RAM")
     print("="*60 + "\n")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host=os.environ.get("HOST", "127.0.0.1"), port=port)

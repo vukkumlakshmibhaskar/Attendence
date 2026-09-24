@@ -138,6 +138,7 @@ export default function App() {
         setupComplete={auth.setupComplete}
         onSetup={auth.setup}
         onLogin={auth.login}
+        onShowLogin={auth.showLogin}
         error={auth.error}
       />
     );
@@ -234,3 +235,5 @@ function normalizeDashboard(value) {
     teacher_workload: ensureArray(value.teacher_workload),
   };
 }
+
+

@@ -14,7 +14,10 @@ const FACE_OVAL_LANDMARKS = [
 
 export function getFacePoseAnalyzer() {
   if (!analyzerPromise) {
-    analyzerPromise = createAnalyzer();
+    analyzerPromise = createAnalyzer().catch((error) => {
+      analyzerPromise = undefined;
+      throw error;
+    });
   }
   return analyzerPromise;
 }
@@ -60,17 +63,9 @@ function buildPoseState(result) {
 
   const box = smoothBox(faceTrackingBox(landmarks));
   const metrics = estimatePoseMetrics(landmarks, result?.facialTransformationMatrixes?.[0]);
-  const framingIssue = getFramingIssue(box, metrics);
-  if (framingIssue) {
-    return {
-      faceDetected: true,
-      valid: false,
-      message: framingIssue,
-      box,
-      metrics,
-    };
-  }
-
+  // This model supplies pose measurements. Enrollment framing uses the same
+  // backend box that is drawn on the video; the estimated landmark box drifts
+  // with head rotation and must not reject otherwise visible side poses.
   return {
     faceDetected: true,
     valid: true,
@@ -104,19 +99,6 @@ function estimatePoseMetrics(landmarks, matrix) {
   };
 }
 
-function getFramingIssue(box, metrics) {
-  const centerX = box.left + box.width / 2;
-  const centerY = box.top + box.height / 2;
-  if (box.width < 0.18) return "Move closer to the camera";
-  if (box.width > 0.78) return "Move slightly back";
-  if (centerX < 0.22) return "Move face to the right";
-  if (centerX > 0.78) return "Move face to the left";
-  if (centerY < 0.18) return "Lower your face into view";
-  if (centerY > 0.84) return "Raise your face into view";
-  if (Math.abs(metrics.roll) > 0.36) return "Keep your head level";
-  return "";
-}
-
 function smoothBox(box) {
   if (!previousBox) {
     previousBox = box;
@@ -146,9 +128,7 @@ function smoothBox(box) {
 }
 
 function faceTrackingBox(landmarks) {
-  const ovalPoints = FACE_OVAL_LANDMARKS.map((index) => landmarks[index]).filter(Boolean);
-  const box = boundingBox(ovalPoints.length ? ovalPoints : landmarks);
-  return expandBox(box, 0.18, 0.24, 0.18, 0.12);
+  return landmarkAnchoredFaceBox(landmarks);
 }
 
 function boundingBox(landmarks) {
@@ -167,6 +147,75 @@ function boundingBox(landmarks) {
     top: clamp01(minY),
     width: clamp01(maxX - minX),
     height: clamp01(maxY - minY),
+  };
+}
+
+function robustBoundingBox(landmarks) {
+  if (landmarks.length < 8) {
+    return boundingBox(landmarks);
+  }
+
+  const xs = landmarks.map((point) => point.x).sort((a, b) => a - b);
+  const ys = landmarks.map((point) => point.y).sort((a, b) => a - b);
+  const trim = Math.max(1, Math.floor(landmarks.length * 0.08));
+  const minIndex = trim;
+  const maxIndex = Math.max(minIndex, landmarks.length - trim - 1);
+  const minX = xs[minIndex];
+  const maxX = xs[maxIndex];
+  const minY = ys[minIndex];
+  const maxY = ys[maxIndex];
+
+  return {
+    left: clamp01(minX),
+    top: clamp01(minY),
+    width: clamp01(maxX - minX),
+    height: clamp01(maxY - minY),
+  };
+}
+
+function landmarkAnchoredFaceBox(landmarks) {
+  const leftEye = averagePoints([landmarks[33], landmarks[133]].filter(Boolean));
+  const rightEye = averagePoints([landmarks[263], landmarks[362]].filter(Boolean));
+  const nose = landmarks[1] || landmarks[4];
+  const forehead = landmarks[10];
+  const chin = landmarks[152];
+  const mouthLeft = landmarks[61];
+  const mouthRight = landmarks[291];
+
+  if (!leftEye || !rightEye || !nose || !forehead || !chin) {
+    const ovalPoints = FACE_OVAL_LANDMARKS.map((index) => landmarks[index]).filter(Boolean);
+    const box = robustBoundingBox(ovalPoints.length ? ovalPoints : landmarks);
+    return expandBox(box, 0.08, 0.16, 0.08, 0.08);
+  }
+
+  const eyeCenter = averagePoints([leftEye, rightEye]);
+  const mouthCenter = mouthLeft && mouthRight ? averagePoints([mouthLeft, mouthRight]) : nose;
+  const eyeDistance = Math.max(distance(leftEye, rightEye), 0.001);
+  const faceHeight = Math.max(distance(forehead, chin), eyeDistance * 2.2);
+  const centerX = weightedAverage(
+    [
+      [eyeCenter.x, 0.35],
+      [nose.x, 0.4],
+      [mouthCenter.x, 0.25],
+    ],
+  );
+  const centerY = weightedAverage(
+    [
+      [forehead.y, 0.18],
+      [eyeCenter.y, 0.2],
+      [nose.y, 0.24],
+      [mouthCenter.y, 0.16],
+      [chin.y, 0.22],
+    ],
+  );
+  const width = Math.max(eyeDistance * 2.55, faceHeight * 0.58);
+  const height = Math.max(faceHeight * 1.12, width * 1.18);
+
+  return {
+    left: clamp01(centerX - width / 2),
+    top: clamp01(centerY - height / 2),
+    width: clamp01(width),
+    height: clamp01(height),
   };
 }
 
@@ -217,6 +266,7 @@ function matrixToEuler(matrix) {
 }
 
 function averagePoints(points) {
+  if (!points.length) return null;
   const total = points.reduce(
     (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y, z: sum.z + (point.z || 0) }),
     { x: 0, y: 0, z: 0 },
@@ -226,6 +276,11 @@ function averagePoints(points) {
     y: total.y / points.length,
     z: total.z / points.length,
   };
+}
+
+function weightedAverage(values) {
+  const totalWeight = values.reduce((sum, [, weight]) => sum + weight, 0);
+  return values.reduce((sum, [value, weight]) => sum + value * weight, 0) / totalWeight;
 }
 
 function distance(a, b) {

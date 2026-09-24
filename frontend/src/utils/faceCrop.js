@@ -84,6 +84,56 @@ export function mapNormalizedBoxToElementStyle(box, video) {
   };
 }
 
+export function mapFrameBoxToElementStyle(box, frameSize, video) {
+  const element = video?.parentElement;
+  const rect = element?.getBoundingClientRect();
+  const frameWidth = frameSize?.width || video?.videoWidth || 0;
+  const frameHeight = frameSize?.height || video?.videoHeight || 0;
+  const crop = frameSize?.crop;
+  const videoWidth = video?.videoWidth || 0;
+  const videoHeight = video?.videoHeight || 0;
+  if (!box || !rect?.width || !rect?.height || !frameWidth || !frameHeight) {
+    return undefined;
+  }
+
+  const mappedBox = crop?.size && videoWidth && videoHeight
+    ? {
+        x: crop.x + (box.x / frameWidth) * crop.size,
+        y: crop.y + (box.y / frameHeight) * crop.size,
+        width: (box.width / frameWidth) * crop.size,
+        height: (box.height / frameHeight) * crop.size,
+      }
+    : box;
+  const sourceWidth = crop?.size && videoWidth ? videoWidth : frameWidth;
+  const sourceHeight = crop?.size && videoHeight ? videoHeight : frameHeight;
+  const sourceAspect = sourceWidth / sourceHeight;
+  const elementAspect = rect.width / rect.height;
+  let renderedWidth = rect.width;
+  let renderedHeight = rect.height;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (sourceAspect > elementAspect) {
+    renderedHeight = rect.width / sourceAspect;
+    offsetY = (rect.height - renderedHeight) / 2;
+  } else {
+    renderedWidth = rect.height * sourceAspect;
+    offsetX = (rect.width - renderedWidth) / 2;
+  }
+
+  const left = clamp01((offsetX + (mappedBox.x / sourceWidth) * renderedWidth) / rect.width);
+  const top = clamp01((offsetY + (mappedBox.y / sourceHeight) * renderedHeight) / rect.height);
+  const right = clamp01((offsetX + ((mappedBox.x + mappedBox.width) / sourceWidth) * renderedWidth) / rect.width);
+  const bottom = clamp01((offsetY + ((mappedBox.y + mappedBox.height) / sourceHeight) * renderedHeight) / rect.height);
+
+  return {
+    left: `${left * 100}%`,
+    top: `${top * 100}%`,
+    width: `${Math.max(0.02, right - left) * 100}%`,
+    height: `${Math.max(0.02, bottom - top) * 100}%`,
+  };
+}
+
 function expandedSquareCrop(box, sourceWidth, sourceHeight, expansion) {
   if (!box) {
     return centeredCrop(sourceWidth, sourceHeight);
