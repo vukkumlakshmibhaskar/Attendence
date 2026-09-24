@@ -25,7 +25,9 @@ from pydantic import BaseModel, Field
 # CONFIGURATION & CONSTANTS (POSTGRESQL PRIMARY)
 # =====================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(BASE_DIR, ".env"))
+# Process environment takes precedence, then backend/.env, then repository .env.
+load_dotenv(os.path.join(BASE_DIR, ".env"), override=False)
+load_dotenv(os.path.join(BASE_DIR, "..", ".env"), override=False)
 FACE_VERIFIER_MODEL_PATH = os.path.join(BASE_DIR, os.environ.get("FACE_VERIFIER_MODEL_PATH", "face_verifier_pins.json"))
 FACE_MODEL_ID = "sface_deep_verifier_128d"
 face_model_lock = Lock()
